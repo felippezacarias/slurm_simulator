@@ -95,6 +95,15 @@
 #include "src/slurmctld/slurmctld.h"
 #include "src/slurmctld/srun_comm.h"
 #include "backfill.h"
+//#include "src/unittests_lib/tools.h"
+
+#ifdef SLURM_SIMULATOR
+#include <fcntl.h>           /* For O_* constants */
+#include <sys/stat.h>        /* For mode constants */
+#include <semaphore.h>
+#include <pthread.h>
+#include "src/common/slurm_sim.h"
+#endif
 
 #define BACKFILL_INTERVAL	30
 #define BACKFILL_RESOLUTION	60
@@ -203,6 +212,10 @@ static int yield_sleep   = YIELD_SLEEP;
 static List pack_job_list = NULL;
 static xhash_t *user_usage_map = NULL; /* look up user usage when no assoc */
 
+#ifdef SLURM_SIMULATOR
+char SEM_NAME[] 	= "serversem";
+sem_t* mutexserver	= SEM_FAILED;
+#endif
 /*********************** local functions *********************/
 static void _add_reservation(uint32_t start_time, uint32_t end_reserve,
 			     bitstr_t *res_bitmap,
@@ -323,10 +336,11 @@ static bool _many_pending_rpcs(void)
 	bool many_pending_rpcs = false;
 
 	slurm_mutex_lock(&slurmctld_config.thread_count_lock);
+	/* Marco: Simulator: time should be not passing here so no rpc should arrive */
 	//info("thread_count = %u", slurmctld_config.server_thread_count);
-	if ((max_rpc_cnt > 0) &&
-	    (slurmctld_config.server_thread_count >= max_rpc_cnt))
-		many_pending_rpcs = true;
+//	if ((max_rpc_cnt > 0) &&
+//	    (slurmctld_config.server_thread_count >= max_rpc_cnt))
+//		many_pending_rpcs = true;
 	slurm_mutex_unlock(&slurmctld_config.thread_count_lock);
 
 	return many_pending_rpcs;
@@ -610,6 +624,7 @@ extern void stop_backfill_agent(void)
 /* Sleep for at least specified time, returns actual sleep time in usec */
 static uint32_t _my_sleep(int64_t usec)
 {
+#ifndef SLURM_SIMULATOR
 	int64_t nsec;
 	uint32_t sleep_time = 0;
 	struct timespec ts = {0, 0};
@@ -634,6 +649,16 @@ static uint32_t _my_sleep(int64_t usec)
 	sleep_time += tv2.tv_usec;
 	sleep_time -= tv1.tv_usec;
 	return sleep_time;
+
+       /* For simulation purposes such a polite termintarion process is not necessary although it could be
+          implemented as sleep wrapper does. By now just using a simple call to sleep here. */
+#else
+	/* Since the backfill and time controling loops are synced, we cannot make
+	 * the sleep depend on "faked time", because it does not change while the
+	 * backfilling is running... and _my_sleep is called form in there.
+	 */
+	usleep(10);
+#endif
 }
 
 static void _load_config(void)
@@ -945,6 +970,72 @@ static int _list_find_all(void *x, void *key)
 {
 	return 1;
 }
+/*
+#ifdef SLURM_SIMULATOR
+int
+open_global_sync_sem() {
+	int iter = 0;
+	while(mutexserver == SEM_FAILED && iter < 10) {
+		mutexserver = sem_open(SEM_NAME, 0, 0644, 0);
+		if(mutexserver == SEM_FAILED) sleep(1);
+		++iter;
+	}
+
+	if(mutexserver == SEM_FAILED)
+		return -1;
+	else
+		return 0;
+}
+
+void
+perform_global_sync() {
+	while(*global_sync_flag < 2 || *global_sync_flag > 4) {
+		usleep(100000);
+	}
+	sem_wait(mutexserver);
+	*global_sync_flag += 1;
+	if(*global_sync_flag > 4) {*global_sync_flag = 1;}
+	sem_post(mutexserver);
+}
+
+void
+close_global_sync_sem() {
+	if(mutexserver != SEM_FAILED) sem_close(mutexserver);
+}
+#endif
+
+*/
+
+#ifdef SLURM_SIMULATOR
+
+char BF_SEM_NAME[] = "bf_sem";
+char BF_DONE_SEM_NAME[] = "bf_done_sem";
+sem_t* mutex_bf_pg=NULL;
+sem_t* mutex_bf_done_pg=NULL;
+
+int open_BF_sync_semaphore_pg() {
+	mutex_bf_pg = sem_open(BF_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf_pg == SEM_FAILED) {
+		error("unable to create backfill semaphore");
+		sem_unlink(BF_SEM_NAME);
+		return -1;
+	}
+
+	mutex_bf_done_pg = sem_open(BF_DONE_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf_done_pg == SEM_FAILED) {
+		error("unable to create backfill done semaphore");
+		sem_unlink(BF_DONE_SEM_NAME);
+		return -1;
+	}
+
+	return 0;
+}
+
+void close_BF_sync_semaphore() {
+	if(mutex_bf_pg != SEM_FAILED) sem_close(mutex_bf_pg);
+	if(mutex_bf_done_pg != SEM_FAILED) sem_close(mutex_bf_done_pg);
+}
+#endif
 
 /* backfill_agent - detached thread periodically attempts to backfill jobs */
 extern void *backfill_agent(void *args)
@@ -964,16 +1055,28 @@ extern void *backfill_agent(void *args)
 		error("%s: cannot set my name to %s %m", __func__, "backfill");
 	}
 #endif
+//	open_global_sync_sem();
 	_load_config();
 	last_backfill_time = time(NULL);
 	pack_job_list = list_create(_pack_map_del);
+#ifdef SLURM_SIMULATOR
+	open_BF_sync_semaphore_pg();
+	backfill_interval=2;
+#endif
 	while (!stop_backfill) {
+#ifdef SLURM_SIMULATOR
+		sem_wait(mutex_bf_pg);
+#endif
+#ifndef SLURM_SIMULATOR
 		if (short_sleep)
 			_my_sleep(1000000);
 		else
 			_my_sleep((int64_t) backfill_interval * 1000000);
-		if (stop_backfill)
+#endif
+		if (stop_backfill){
+			sem_post(mutex_bf_done_pg);
 			break;
+		}
 
 		if (slurmctld_config.scheduling_disabled)
 			continue;
@@ -991,13 +1094,20 @@ extern void *backfill_agent(void *args)
 			_load_config();
 		now = time(NULL);
 		wait_time = difftime(now, last_backfill_time);
+#ifndef SLURM_SIMULATOR
 		if ((wait_time < backfill_interval) ||
 		    job_is_completing(NULL) || _many_pending_rpcs() ||
 		    !avail_front_end(NULL) || !_more_work(last_backfill_time)) {
 			short_sleep = true;
 			continue;
 		}
-
+#endif
+#ifdef SLURM_SIMULATOR
+		if (!((wait_time < backfill_interval) ||
+		    job_is_completing(NULL) || _many_pending_rpcs() ||
+		    !avail_front_end(NULL) || !_more_work(last_backfill_time))) {
+#endif
+	
 		slurm_mutex_lock(&check_bf_running_lock);
 		slurmctld_diag_stats.bf_active = 1;
 		slurm_mutex_unlock(&check_bf_running_lock);
@@ -1015,10 +1125,16 @@ extern void *backfill_agent(void *args)
 		slurm_mutex_unlock(&check_bf_running_lock);
 
 		short_sleep = false;
+#ifdef SLURM_SIMULATOR
+		}
+		sem_post(mutex_bf_done_pg);
+#endif
 	}
 	FREE_NULL_LIST(pack_job_list);
 	xhash_free(user_usage_map); /* May have been init'ed if used */
-
+#ifdef SLURM_SIMULATOR
+	close_BF_sync_semaphore();
+#endif	//perform_global_sync(); /* st on 20151020 */
 	return NULL;
 }
 
@@ -1506,6 +1622,9 @@ static int _attempt_backfill(void)
 	int rc = 0, error_code;
 	int job_test_count = 0, test_time_count = 0, pend_time;
 	bool already_counted, many_rpcs = false;
+#ifdef SLURM_SIMULATOR
+       int local_loops;
+#endif
 	uint32_t reject_array_job_id = 0;
 	struct part_record *reject_array_part = NULL;
 	uint32_t start_time;
@@ -1992,7 +2111,11 @@ next_task:
 			many_rpcs = true;
 		slurm_mutex_unlock(&slurmctld_config.thread_count_lock);
 
+#ifndef SLURM_SIMULATOR
 		if (many_rpcs || (slurm_delta_tv(&start_tv) >= yield_interval)) {
+#else
+			if (local_loops == 20) {
+#endif
 			uint32_t save_time_limit = job_ptr->time_limit;
 			_set_job_time_limit(job_ptr, orig_time_limit);
 			if (debug_flags & DEBUG_FLAG_BACKFILL) {
@@ -2015,6 +2138,9 @@ next_task:
 				rc = 1;
 				break;
 			}
+#ifdef SLURM_SIMULATOR
+                       local_loops = 0;
+#endif
 			if (stop_backfill)
 				break;
 
@@ -2042,7 +2168,9 @@ next_task:
 			job_ptr->time_limit = save_time_limit;
 			job_ptr->part_ptr = part_ptr;
 		}
-
+#ifdef SLURM_SIMULATOR
+               local_loops++;
+#endif
 		FREE_NULL_BITMAP(avail_bitmap);
 		FREE_NULL_BITMAP(exc_core_bitmap);
 		start_res = MAX(later_start, pack_time);
@@ -2106,10 +2234,12 @@ next_task:
 		     (!bit_super_set(job_ptr->details->req_node_bitmap,
 				     avail_bitmap))) ||
 		    (job_req_node_filter(job_ptr, avail_bitmap, true))) {
+#ifndef SLURM_SIMULATOR
 			if (later_start && !job_no_reserve) {
 				job_ptr->start_time = 0;
 				goto TRY_LATER;
 			}
+#endif
 
 			/* Job can not start until too far in the future */
 			_set_job_time_limit(job_ptr, orig_time_limit);
@@ -2466,6 +2596,7 @@ skip_start:
 			continue;
 		}
 
+#ifndef SLURM_SIMULATOR
 		if (later_start && (job_ptr->start_time > later_start)) {
 			/* Try later when some nodes currently reserved for
 			 * pending jobs are free */
@@ -2476,6 +2607,7 @@ skip_start:
 			job_ptr->start_time = 0;
 			goto TRY_LATER;
 		}
+#endif
 
 		start_time  = job_ptr->start_time;
 		end_reserve = job_ptr->start_time + boot_time +
@@ -2527,6 +2659,7 @@ skip_start:
 			break;
 		}
 
+#ifndef SLURM_SIMULATOR
 		if ((job_ptr->start_time > now) &&
 		    (job_ptr->state_reason != WAIT_BURST_BUFFER_RESOURCE) &&
 		    (job_ptr->state_reason != WAIT_BURST_BUFFER_STAGING) &&
@@ -2544,6 +2677,7 @@ skip_start:
 			}
 			goto TRY_LATER;
 		}
+#endif
 
 		if (_job_pack_deadlock_test(job_ptr)) {
 			_set_job_time_limit(job_ptr, orig_time_limit);

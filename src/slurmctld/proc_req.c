@@ -115,6 +115,10 @@ static uint32_t *rpc_user_id = NULL;
 static uint32_t *rpc_user_cnt = NULL;
 static uint64_t *rpc_user_time = NULL;
 
+#ifdef SLURM_SIMULATOR
+#include <semaphore.h>
+#endif
+
 static pthread_mutex_t throttle_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t throttle_cond = PTHREAD_COND_INITIALIZER;
 
@@ -199,6 +203,7 @@ inline static void  _slurm_rpc_set_debug_level(slurm_msg_t *msg);
 inline static void  _slurm_rpc_set_schedlog_level(slurm_msg_t *msg);
 inline static void  _slurm_rpc_shutdown_controller(slurm_msg_t * msg);
 inline static void  _slurm_rpc_shutdown_controller_immediate(slurm_msg_t *msg);
+inline static void  _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg);
 inline static void  _slurm_rpc_set_fs_dampening_factor(slurm_msg_t *msg);
 
 inline static void _slurm_rpc_sib_job_lock(uint32_t uid, slurm_msg_t *msg);
@@ -249,6 +254,8 @@ extern diag_stats_t slurmctld_diag_stats;
 static __thread bool drop_priv = false;
 #endif
 
+int finished_jobs_waiting_for_epilog=0;
+int total_finished_jobs = 0;
 /*
  * slurmctld_req  - Process an individual RPC request
  * IN/OUT msg - the request message, data associated with the message is freed
@@ -411,6 +418,10 @@ void slurmctld_req(slurm_msg_t *msg, connection_arg_t *arg)
 	case MESSAGE_NODE_REGISTRATION_STATUS:
 		_slurm_rpc_node_registration(msg, 0);
 		break;
+       	case MESSAGE_SIM_HELPER_CYCLE:
+               _slurm_rpc_sim_helper_cycle(msg);
+               slurm_free_sim_helper_msg(msg->data);
+               break;
 	case REQUEST_JOB_ALLOCATION_INFO:
 		_slurm_rpc_job_alloc_info(msg);
 		break;
@@ -2278,6 +2289,11 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
 	struct job_record  *job_ptr;
 
 	START_TIMER;
+//Marco: Why here and not at the end of the function?
+//#ifdef SLURM_SIMULATOR
+//       info("SIM: Processing RPC: MESSAGE_EPILOG_COMPLETE for jobid %d", epilog_msg->job_id);
+//       slurm_send_rc_msg(msg, SLURM_SUCCESS);
+//#endif
 	debug2("Processing RPC: MESSAGE_EPILOG_COMPLETE uid=%d", uid);
 	if (!validate_slurm_user(uid)) {
 		error("Security violation, EPILOG_COMPLETE RPC from uid=%d",
@@ -2325,8 +2341,12 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
 
 	END_TIMER2("_slurm_rpc_epilog_complete");
 
+/* Marco: this is blocking event triggered scheduler */
+//#ifndef SLURM_SIMULATOR
 	/* Functions below provide their own locking */
 	if (!running_composite && *run_scheduler) {
+#ifdef SLURM_SIMULATOR
+		queue_job_scheduler();
 		/*
 		 * In defer mode, avoid triggering the scheduler logic
 		 * for every epilog complete message.
@@ -2335,13 +2355,20 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
 		 * calls can be very high for large machine or large number
 		 * of managed jobs.
 		 */
+#else
 		if (!LOTS_OF_AGENTS && !defer_sched)
 			(void) schedule(0);	/* Has own locking */
+#endif
 		schedule_node_save();		/* Has own locking */
 		schedule_job_save();		/* Has own locking */
 	}
-
+//#endif
 	/* NOTE: RPC has no response */
+#ifdef SLURM_SIMULATOR
+	info("SIM: Processing RPC: MESSAGE_EPILOG_COMPLETE for jobid %d", epilog_msg->job_id);
+        slurm_send_rc_msg(msg, SLURM_SUCCESS);
+	finished_jobs_waiting_for_epilog--;
+#endif
 }
 
 /* _slurm_rpc_job_step_kill - process RPC to cancel an entire job or
@@ -2463,6 +2490,7 @@ static void _slurm_rpc_complete_prolog(slurm_msg_t * msg)
 
 /* _slurm_rpc_complete_batch - process RPC from slurmstepd to note the
  *	completion of a batch script */
+
 static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 					     bool *run_scheduler,
 					     bool running_composite)
@@ -2484,6 +2512,7 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 
 	/* init */
 	START_TIMER;
+	total_finished_jobs+=1;
 	debug2("Processing RPC: REQUEST_COMPLETE_BATCH_SCRIPT from "
 	       "uid=%u JobId=%u",
 	       uid, comp_msg->job_id);
@@ -2629,6 +2658,7 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 	/* Mark job allocation complete */
 	if (msg->msg_type == REQUEST_COMPLETE_BATCH_JOB)
 		job_epilog_complete(comp_msg->job_id, comp_msg->node_name, 0);
+	finished_jobs_waiting_for_epilog+=1;
 	i = job_complete(comp_msg->job_id, uid, job_requeue, false,
 			 comp_msg->job_rc);
 	error_code = MAX(error_code, i);
@@ -2660,10 +2690,11 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 		dump_job = true;
 		slurm_send_rc_msg(msg, SLURM_SUCCESS);
 	}
-
+#ifndef SLURM_SIMULATOR
 	/* If running composite lets not call this to avoid deadlock */
 	if (!running_composite && *run_scheduler)
 		(void) schedule(0);		/* Has own locking */
+#endif
 	if (dump_job)
 		(void) schedule_job_save();	/* Has own locking */
 	if (dump_node)
@@ -3933,11 +3964,13 @@ static void _slurm_rpc_submit_batch_job(slurm_msg_t *msg)
 		goto send_msg;
 	}
 
+#ifndef SLURM_SIMULATOR
 	if ((error_code = _valid_id("REQUEST_SUBMIT_BATCH_JOB",
 				    job_desc_msg, uid, gid))) {
 		reject_job = true;
 		goto send_msg;
 	}
+#endif
 
 	/* use the credential to validate where we came from */
 	if (hostname) {
@@ -6292,6 +6325,90 @@ _slurm_rpc_dump_licenses(slurm_msg_t * msg)
 
 	slurm_send_node_msg(msg->conn_fd, &response_msg);
 	xfree(dump);
+}
+
+
+
+char BF_SEM_NAME[] = "bf_sem";
+char BF_DONE_SEM_NAME[] = "bf_done_sem";
+sem_t* mutex_bf=NULL;
+sem_t* mutex_bf_done=NULL;
+
+int open_BF_sync_semaphore() {
+	mutex_bf = sem_open(BF_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf == SEM_FAILED) {
+		error("unable to create backfill semaphore");
+		sem_unlink(BF_SEM_NAME);
+		return -1;
+	}
+
+	mutex_bf_done = sem_open(BF_DONE_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf_done == SEM_FAILED) {
+		error("unable to create backfill done semaphore");
+		sem_unlink(BF_DONE_SEM_NAME);
+		return -1;
+	}
+
+	return 0;
+}
+
+void close_BF_sync_semaphore() {
+	if(mutex_bf != SEM_FAILED) sem_close(mutex_bf);
+	if(mutex_bf_done != SEM_FAILED) sem_close(mutex_bf_done);
+}
+
+static time_t last_helper_schedule_time=0;
+static time_t last_helper_backfill_time=0;
+#define HELPER_SCHEDULE_PERIOD_S 11
+#define HELPER_BACKFILL_PERIOD_S 23
+
+
+
+static void do_backfill() {
+	int value;
+	sem_post(mutex_bf);
+	sem_wait(mutex_bf_done);
+}
+
+static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
+{
+	if (mutex_bf==NULL) {
+		if(open_BF_sync_semaphore()==-1) {
+			error("Opening backfill semaphore! this may affect backfill"
+				"operations");
+		}
+	}
+	sim_helper_msg_t *helper_msg =
+                (sim_helper_msg_t *) msg->data;
+
+	while (total_finished_jobs < helper_msg->total_jobs_ended) {
+		debug3("Waiting complete job to arrive");
+		usleep(1000);
+	}
+	total_finished_jobs = 0;
+	while (finished_jobs_waiting_for_epilog > 0) {
+		debug3("Waiting epilog to finish");
+		usleep(1000);
+	}
+
+        debug3("Processing RPC: MESSAGE_SIM_HELPER_CYCLE for %d jobs",
+        		helper_msg->total_jobs_ended);
+        time_t current_time=time(NULL);
+	  if (get_scheduler_cnt() > 0) {
+		reset_scheduler_cnt();
+//        if (last_helper_schedule_time==0 ||
+//           (current_time-last_helper_schedule_time)>HELPER_SCHEDULE_PERIOD_S) {
+        	schedule(0);
+        	last_helper_schedule_time=current_time;
+        }
+        if (last_helper_backfill_time==0 ||
+        	(current_time-last_helper_backfill_time)>HELPER_BACKFILL_PERIOD_S) {
+        	info("unlocking backfill");
+		do_backfill();
+        	last_helper_backfill_time=current_time;
+        }
+
+        slurm_send_rc_msg(msg, SLURM_SUCCESS);
 }
 
 /* Free memory used to track RPC usage by type and user */

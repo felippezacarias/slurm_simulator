@@ -400,6 +400,7 @@ AC_CONFIG_FILES([Makefile
 		 contribs/torque/Makefile
 		 contribs/openlava/Makefile
 		 contribs/sgather/Makefile
+		 contribs/simulator/Makefile
 		 contribs/sgi/Makefile
 		 contribs/sjobexit/Makefile
 		 contribs/pmi/Makefile

@@ -2006,6 +2006,14 @@ _clear_expired_job_states(slurm_cred_ctx_t ctx)
 		return;
 	last_scan = now;
 
+	if (!ctx) {
+		info("No ctx!");
+		return;
+	}
+	if(!(ctx->job_list)) {
+		info("There is no job_list in the context!");
+		return;
+	}
 	i = list_iterator_create(ctx->job_list);
 	while ((j = list_next(i))) {
 		debug3("state for jobid %u: ctime:%"PRIu64" revoked:%"PRIu64" "

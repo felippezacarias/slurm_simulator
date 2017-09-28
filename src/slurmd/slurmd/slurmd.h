@@ -54,6 +54,7 @@ extern pid_t getpgid(pid_t pid);
 #endif
 
 extern int devnull;
+extern int waiting_epilog_msgs;
 extern bool get_reg_resp;
 
 /*

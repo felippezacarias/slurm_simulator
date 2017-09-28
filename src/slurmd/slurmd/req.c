@@ -107,6 +107,8 @@
 #include "src/slurmd/common/slurmstepd_init.h"
 #include "src/slurmd/common/task_plugin.h"
 
+#include "sim_events.h"
+
 #define _LIMIT_INFO 0
 
 #define RETRY_DELAY 15		/* retry every 15 seconds */
@@ -188,7 +190,10 @@ static void _rpc_timelimit(slurm_msg_t *);
 static void _rpc_reattach_tasks(slurm_msg_t *);
 static void _rpc_suspend_job(slurm_msg_t *msg);
 static void _rpc_terminate_job(slurm_msg_t *);
+static void _rpc_simulator_terminate_job(slurm_msg_t *);
+static int _rpc_sim_job(slurm_msg_t *msg);
 static void _rpc_update_time(slurm_msg_t *);
+static void _rpc_simulator_batch_job(slurm_msg_t *);
 static void _rpc_shutdown(slurm_msg_t *msg);
 static void _rpc_reconfig(slurm_msg_t *msg);
 static void _rpc_reboot(slurm_msg_t *msg);
@@ -241,6 +246,10 @@ static int  _match_jobid(void *s0, void *s1);
 static void _wait_for_job_running_prolog(uint32_t job_id);
 static bool _requeue_setup_env_fail(void);
 
+static void simulator_rpc_batch_job(slurm_msg_t *msg);
+static void simulator_rpc_terminate_job(slurm_msg_t *rec_msg);
+
+
 /*
  *  List of threads waiting for jobs to complete
  */
@@ -255,6 +264,13 @@ static List job_limits_list = NULL;
 static bool job_limits_loaded = false;
 
 static int next_fini_job_inx = 0;
+
+extern pthread_mutex_t simulator_mutex;
+extern simulator_event_t *head_simulator_event;
+extern volatile simulator_event_t *head_sim_completed_jobs;
+extern int total_sim_events;
+
+simulator_event_info_t *head_simulator_event_info;
 
 /* NUM_PARALLEL_SUSP_JOBS controls the number of jobs that can be suspended or
  * resumed at one time. */
@@ -305,12 +321,17 @@ slurmd_req(slurm_msg_t *msg)
 		last_slurmctld_msg = time(NULL);
 		break;
 	case REQUEST_BATCH_JOB_LAUNCH:
+#ifndef SLURM_SIMULATOR
 		debug2("Processing RPC: REQUEST_BATCH_JOB_LAUNCH");
 		/* Mutex locking moved into _rpc_batch_job() due to
 		 * very slow prolog on Blue Gene system. Only batch
 		 * jobs are supported on Blue Gene (no job steps). */
 		_rpc_batch_job(msg, true);
 		last_slurmctld_msg = time(NULL);
+#else
+		simulator_rpc_batch_job(msg);
+#endif
+		info("REQUEST BATCH_JOB_LAUNCH FINISHED\n");
 		break;
 	case REQUEST_LAUNCH_TASKS:
 		debug2("Processing RPC: REQUEST_LAUNCH_TASKS");
@@ -357,7 +378,12 @@ slurmd_req(slurm_msg_t *msg)
 	case REQUEST_TERMINATE_JOB:
 		debug2("Processing RPC: REQUEST_TERMINATE_JOB");
 		last_slurmctld_msg = time(NULL);
+#ifndef SLURM_SIMULATOR
 		_rpc_terminate_job(msg);
+#else
+		simulator_rpc_terminate_job(msg);
+#endif
+		info("RPC TERMINATE_JOB FINISHED\n");
 		break;
 	case REQUEST_COMPLETE_BATCH_SCRIPT:
 		debug2("Processing RPC: REQUEST_COMPLETE_BATCH_SCRIPT");
@@ -437,6 +463,10 @@ slurmd_req(slurm_msg_t *msg)
 	case REQUEST_FORWARD_DATA:
 		_rpc_forward_data(msg);
 		break;
+	case REQUEST_SIM_JOB:
+		info("SIM: REQUEST_SIM_JOB message received\n");
+		_rpc_sim_job(msg);
+		break;
 	case REQUEST_NETWORK_CALLERID:
 		debug2("Processing RPC: REQUEST_NETWORK_CALLERID");
 		_rpc_network_callerid(msg);
@@ -478,6 +508,102 @@ rwfail:
 	slurm_mutex_unlock(&cf->config_mutex);
 	return (-1);
 }
+
+#ifdef SLURM_SIMULATOR
+
+int simulator_add_future_event(batch_job_launch_msg_t *req){
+	simulator_event_t  *new_event;
+	simulator_event_info_t *temp_ptr = head_simulator_event_info;
+	time_t now;
+
+	pthread_mutex_lock(&simulator_mutex);
+	now = time(NULL);
+
+	new_event = (simulator_event_t *)malloc(sizeof(simulator_event_t));
+	if(!new_event){
+		error("SIMULATOR: malloc fails for new_event\n");
+		pthread_mutex_unlock(&simulator_mutex);
+		return -1;
+	}
+
+	/* Checking job_id as expected */
+	while(temp_ptr){
+		if(temp_ptr->job_id == req->job_id)
+			break;
+		temp_ptr = temp_ptr->next;
+	}
+	if(!temp_ptr){
+		info("SIM: No job_id event matching this job_id %d\n", req->job_id);
+		pthread_mutex_unlock(&simulator_mutex);
+		return -1;
+	}
+	new_event->job_id = req->job_id;
+	new_event->type = REQUEST_COMPLETE_BATCH_SCRIPT;
+	new_event->when = now + temp_ptr->duration;
+	new_event->nodelist = strdup(req->nodes);
+	new_event->next = NULL;
+
+	total_sim_events++;
+	if(!head_simulator_event){
+		info("SIM: Adding new event for job %d when list is empty for future time %ld!", new_event->job_id, new_event->when);
+		head_simulator_event = new_event;
+	}else{
+		volatile simulator_event_t *node_temp = head_simulator_event;
+		info("SIM: Adding new event for job %d in the event listi for future time %ld", new_event->job_id, new_event->when);
+
+		if(head_simulator_event->when > new_event->when){
+			new_event->next = head_simulator_event;
+			head_simulator_event = new_event;
+			pthread_mutex_unlock(&simulator_mutex);
+			return 0;
+		}
+
+		while((node_temp->next) && (node_temp->next->when < new_event->when))
+			node_temp = node_temp->next;
+
+		if(node_temp->next){
+			new_event->next = node_temp->next;
+			node_temp->next = new_event;
+			pthread_mutex_unlock(&simulator_mutex);
+			return 0;
+		}
+		node_temp->next = new_event;
+	}
+
+	pthread_mutex_unlock(&simulator_mutex);
+	return 0;
+}
+
+static void
+simulator_rpc_batch_job(slurm_msg_t *msg)
+{
+	batch_job_launch_msg_t *req = (batch_job_launch_msg_t *)msg->data;
+	bool     first_job_run = true;
+	int      rc = SLURM_SUCCESS;
+	uid_t    req_uid = g_slurm_auth_get_uid(msg->auth_cred, NULL);
+	char    *resv_id = NULL;
+	bool     replied = false;
+	slurm_addr_t *cli = &msg->orig_addr;
+	hostlist_t hl;
+	char *node_name;
+
+	info("SIM: Inside of the simulator_rpc_batch_job for %d\n", req->job_id);
+	hl = hostlist_create(req->nodes);
+	while ((node_name = hostlist_shift(hl))) {
+		info("SIM: nodelist %s\n", node_name);
+	}
+	info("SIM: Hostlist printed\n");
+
+
+	if (slurm_send_rc_msg(msg, SLURM_SUCCESS) < 1) {
+		error("SIM: Could not confirm batch launch for job %d\n", req->job_id);
+	}
+
+	simulator_add_future_event(req);
+
+
+}
+#endif
 
 static int
 _send_slurmstepd_init(int fd, int type, void *req,
@@ -3130,6 +3256,44 @@ _enforce_job_mem_limit(void)
 }
 
 static int
+_rpc_sim_job(slurm_msg_t *msg)
+{
+	int        rc = SLURM_SUCCESS;
+	sim_job_msg_t *sim_job;
+	simulator_event_info_t *new;
+	static int last_job_id; /* Controlling failed submissions */
+
+	sim_job = (sim_job_msg_t *)msg->data;
+
+	info("SIM: Got info for jobid: %u with a duration of %u\n", sim_job->job_id, sim_job->duration);
+
+	if(sim_job->job_id != last_job_id){
+		new = (simulator_event_info_t *)calloc(1, sizeof(simulator_event_info_t));
+		if(!new){
+			info("SIM: _rpc_sim_job error in calloc\n");
+			return rc;
+		}
+
+		new->job_id = sim_job->job_id;
+		new->duration = sim_job->duration;
+
+		new->next = head_simulator_event_info;
+		head_simulator_event_info = new;
+
+		last_job_id = sim_job->job_id;
+	}
+	else{
+		info("SIM: Got an existent job_id. Updating duration for last job inserted\n");
+		head_simulator_event_info->duration = sim_job->duration;
+	}
+
+	if (slurm_send_rc_msg(msg, rc) < 0) {
+		error("Error responding to sim_job: %m");
+	}
+	return rc;
+}
+
+static int
 _rpc_ping(slurm_msg_t *msg)
 {
 	int        rc = SLURM_SUCCESS;
@@ -3450,6 +3614,82 @@ done2:
 	close(fd);
 done:
 	slurm_send_rc_msg(msg, rc);
+}
+
+static void
+simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
+{
+
+	slurm_msg_t            msg;
+	epilog_complete_msg_t  req;
+	hostlist_t hl;
+	char *node_name;
+	int             rc     = SLURM_SUCCESS;
+	kill_job_msg_t *req_kill    = rec_msg->data;
+	volatile simulator_event_t *temp, *event_sim, *prev;
+
+	/* First sending an OK to the controller */
+
+	info("simulator_rpc_terminate_job, jobid = %d", req_kill->job_id);
+
+	slurm_send_rc_msg(rec_msg, SLURM_SUCCESS);
+
+	info("simulator_rpc_terminate_job, jobid = %d ready for sending message", req_kill->job_id);
+
+	pthread_mutex_lock(&simulator_mutex);
+
+	event_sim = head_sim_completed_jobs;
+
+	if((head_sim_completed_jobs) && (head_sim_completed_jobs->job_id == req_kill->job_id)){
+		head_sim_completed_jobs = head_sim_completed_jobs->next;
+	}else{
+
+		temp = head_sim_completed_jobs;
+		if(!temp){
+			info("SIM: Error, no event found for completed job %d T1\n", req_kill->job_id);
+			pthread_mutex_unlock(&simulator_mutex);
+			return;
+		}
+
+		while (temp) {
+			if (temp->job_id==req_kill->job_id) {
+				break;
+			}
+			prev=temp;
+			temp=temp->next;
+		}
+		if (temp) {
+			event_sim=temp;
+			prev->next=temp->next;
+		} else {
+			info("SIM: Error, no event found for completed job %d T2\n", req_kill->job_id);
+			pthread_mutex_unlock(&simulator_mutex);
+			return;
+		}
+	}
+
+	pthread_mutex_unlock(&simulator_mutex);
+
+	hl = hostlist_create(event_sim->nodelist);
+
+	/* With FRONTEND just one epilog complete message is needed */
+	node_name = hostlist_shift(hl);
+
+	info("SIM: Sending epilog complete message for job %d node %s", req_kill->job_id, node_name);
+	slurm_msg_t_init(&msg);
+
+	req.job_id      = req_kill->job_id;
+	req.return_code = rc;
+	req.node_name   = node_name;
+
+	msg.msg_type    = MESSAGE_EPILOG_COMPLETE;
+	msg.data        = &req;
+
+	/* Let wait for an answer for simulation syncronization */
+	slurm_send_recv_controller_rc_msg(&msg, &rc);
+	waiting_epilog_msgs--;
+	hostlist_destroy(hl);
+	free((void*)event_sim);
 }
 
 static void
@@ -5384,6 +5624,8 @@ _rpc_terminate_job(slurm_msg_t *msg)
 	 * that finish before the slurmd knows it finished launching.
 	 */
 	_note_batch_job_finished(req->job_id);
+
+#ifndef SLURM_SIMULATOR
 	/*
 	 * "revoke" all future credentials for this jobid
 	 */
@@ -5394,6 +5636,7 @@ _rpc_terminate_job(slurm_msg_t *msg)
 		save_cred_state(conf->vctx);
 		debug("credential for job %u revoked", req->job_id);
 	}
+#endif
 
 	if (_prolog_is_running(req->job_id)) {
 		if (msg->conn_fd >= 0) {
@@ -5485,8 +5728,10 @@ _rpc_terminate_job(slurm_msg_t *msg)
 			slurm_send_rc_msg(msg,
 					  ESLURMD_KILL_JOB_ALREADY_COMPLETE);
 		}
+#ifndef SLURM_SIMULATOR
 		slurm_cred_begin_expiration(conf->vctx, req->job_id);
 		save_cred_state(conf->vctx);
+#endif
 		_waiter_complete(req->job_id);
 
 		/*

@@ -120,6 +120,15 @@
 #include "src/slurmctld/srun_comm.h"
 #include "src/slurmctld/state_save.h"
 #include "src/slurmctld/trigger_mgr.h"
+//#include "src/unittests_lib/tools.h"
+
+#ifdef SLURM_SIMULATOR
+#include <fcntl.h>           /* For O_* constants */
+#include <sys/stat.h>        /* For mode constants */
+#include <semaphore.h>
+#include <pthread.h>
+#include "src/common/slurm_sim.h"
+#endif
 
 
 #define DEFAULT_DAEMONIZE 1	/* Run as daemon by default if set */
@@ -210,6 +219,13 @@ static int	recover   = DEFAULT_RECOVER;
 static pthread_mutex_t sched_cnt_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pid_t	slurmctld_pid;
 static char *	slurm_conf_filename;
+
+FILE *stats = NULL;
+
+#ifdef SLURM_SIMULATOR
+char SEM_NAME[]		= "serversem";
+sem_t* mutexserver	= SEM_FAILED;
+#endif
 
 /*
  * Static list of signals to block in this process
@@ -715,8 +731,10 @@ int main(int argc, char **argv)
 
 		if (slurm_priority_init() != SLURM_SUCCESS)
 			fatal("failed to initialize priority plugin");
+#ifndef SLURM_SIMULATOR
 		if (slurm_sched_init() != SLURM_SUCCESS)
 			fatal("failed to initialize scheduling plugin");
+#endif
 		if (slurmctld_plugstack_init())
 			fatal("failed to initialize slurmctld_plugstack");
 		if (bb_g_init() != SLURM_SUCCESS)
@@ -739,11 +757,13 @@ int main(int argc, char **argv)
 		slurm_thread_create(&slurmctld_config.thread_id_sig,
 				    _slurmctld_signal_hand, NULL);
 
+#ifndef SLURM_SIMULATOR
 		/*
 		 * create attached thread for state save
 		 */
 		slurm_thread_create(&slurmctld_config.thread_id_save,
 				    slurmctld_state_save, NULL);
+#endif
 
 		/*
 		 * create attached thread for node power management
@@ -759,8 +779,16 @@ int main(int argc, char **argv)
 		/*
 		 * process slurm background activities, could run as pthread
 		 */
+		stats = fopen("slurmctld_stats", "w");
+		if (stats == NULL)
+			error("Cannot open file for reporting statistics!");
+
 		_slurmctld_background(NULL);
 
+		/* Marco: Report some statistics  */
+		if (stats != NULL) {
+			fprintf(stats, "Total backfilled jobs: %d\n", slurmctld_diag_stats.backfilled_jobs);
+		}
 		/* termination of controller */
 		switch_g_save(slurmctld_conf.state_save_location);
 		slurm_priority_fini();
@@ -1034,6 +1062,14 @@ extern void queue_job_scheduler(void)
 	job_sched_cnt++;
 	slurm_mutex_unlock(&sched_cnt_mutex);
 }
+extern int get_scheduler_cnt(void)
+{
+	return job_sched_cnt;
+}
+extern void reset_scheduler_cnt(void)
+{
+	job_sched_cnt = 0;
+}
 
 /* _slurmctld_signal_hand - Process daemon-wide signals */
 static void *_slurmctld_signal_hand(void *no_data)
@@ -1105,6 +1141,47 @@ static void _default_sigaction(int sig)
 static void _sig_handler(int signal)
 {
 }
+
+/* st on 20151020 */
+#ifdef SLURM_SIMULATOR
+int
+open_global_sync_sem() {
+        int iter = 0;
+        while (mutexserver == SEM_FAILED && iter < 10) {
+                mutexserver = sem_open(SEM_NAME, 0, 0644, 0);
+                if(mutexserver == SEM_FAILED) sleep(1);
+                ++iter;
+        }
+
+        if(mutexserver == SEM_FAILED)
+                return -1;
+        else
+                return 0;
+}
+
+void
+perform_global_sync() {
+/*        while(1) {
+		sem_wait(mutexserver);
+		if (*global_sync_flag == 3) {
+			sem_post(mutexserver);	
+			break;
+		}
+		sem_post(mutexserver);
+                debug("global_sync_flag: %d", *global_sync_flag);
+                usleep(100000);
+        }*/
+
+        sem_wait(mutexserver);
+        debug3("Finished with slurmctld");
+        *global_sync_flag = 1;
+        sem_post(mutexserver);
+}
+void
+close_global_sync_sem() {
+        if(mutexserver != SEM_FAILED) sem_close(mutexserver);
+}
+#endif
 
 /*
  * _slurmctld_rpc_mgr - Read incoming RPCs and create pthread for each
@@ -1179,6 +1256,8 @@ static void *_slurmctld_rpc_mgr(void *no_data)
 	/*
 	 * Process incoming RPCs until told to shutdown
 	 */
+	if(open_global_sync_sem() == -1)
+		debug("Error opening mutexserver");
 	while (_wait_for_server_thread()) {
 		if (poll(fds, nports, -1) == -1) {
 			if (errno != EINTR)
@@ -1229,7 +1308,7 @@ static void *_slurmctld_rpc_mgr(void *no_data)
 						     conn_arg);
 		}
 	}
-
+	close_global_sync_sem();
 	debug3("%s shutting down", __func__);
 	for (i = 0; i < nports; i++)
 		close(fds[i].fd);
@@ -1238,6 +1317,42 @@ static void *_slurmctld_rpc_mgr(void *no_data)
 	pthread_exit((void *) 0);
 	return NULL;
 }
+
+/* st on 20151020 */
+#ifdef SLURM_SIMULATOR
+int
+open_global_sync_sem() {
+	int iter = 0;
+	while (mutexserver == SEM_FAILED && iter < 10) {
+		mutexserver = sem_open(SEM_NAME, 0, 0644, 0);
+		if(mutexserver == SEM_FAILED) sleep(1);
+		++iter;
+	}
+
+	if(mutexserver == SEM_FAILED)
+		return -1;
+	else
+		return 0;
+}
+
+void
+perform_global_sync() {
+	while(*global_sync_flag != 3) {
+		debug("global_sync_flag: %d", *global_sync_flag);
+		usleep(100000); /* one-tenth second */
+	}
+
+	sem_wait(mutexserver);
+	debug3("Finished with slurmctld");
+	*global_sync_flag = 1;
+	sem_post(mutexserver);
+}
+void
+close_global_sync_sem() {
+	if(mutexserver != SEM_FAILED) sem_close(mutexserver);
+}
+#endif
+/* st on 20151020 */
 
 /*
  * _service_connection - service the RPC
@@ -1257,6 +1372,10 @@ static void *_service_connection(void *arg)
 	}
 #endif
 	slurm_msg_t_init(&msg);
+/*	if (msg->msg_type == MESSAGE_SIM_HELPER_CYCLE)
+		if(open_global_sync_sem() == -1)
+			debug("Error opening mutexserver");
+*/
 	msg.flags |= SLURM_MSG_KEEP_BUFFER;
 	/*
 	 * slurm_receive_msg sets msg connection fd to accepted fd. This allows
@@ -1290,6 +1409,9 @@ cleanup:
 	xfree(arg);
 	server_thread_decr();
 
+	if (msg->msg_type == MESSAGE_SIM_HELPER_CYCLE)
+		perform_global_sync(); /* st on 20151020 */
+	pthread_exit(NULL);
 	return return_code;
 }
 
@@ -1905,7 +2027,7 @@ static void *_slurmctld_background(void *no_data)
 	int i;
 	uint32_t job_limit;
 	DEF_TIMERS;
-
+	int last_free_nodes_value = -1;
 	/* Locks: Read config */
 	slurmctld_lock_t config_read_lock = {
 		READ_LOCK, NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK };
@@ -1965,6 +2087,12 @@ static void *_slurmctld_background(void *no_data)
 
 		now = time(NULL);
 		START_TIMER;
+
+		int free_nodes = bit_set_count(idle_node_bitmap);
+                if (last_free_nodes_value != free_nodes) {
+                        last_free_nodes_value = free_nodes;
+                        fprintf(stats,"%ld %d\n", now, free_nodes);
+                }
 
 		if (slurmctld_conf.slurmctld_debug <= 3)
 			no_resp_msg_interval = 300;
@@ -2080,6 +2208,7 @@ static void *_slurmctld_background(void *no_data)
 			unlock_slurmctld(node_write_lock);
 		}
 
+#ifndef SLURM_SIMULATOR
 		if (slurmctld_conf.acct_gather_node_freq &&
 		    (difftime(now, last_acct_gather_node_time) >=
 		     slurmctld_conf.acct_gather_node_freq) &&
@@ -2130,6 +2259,7 @@ static void *_slurmctld_background(void *no_data)
 			_queue_reboot_msg();
 			unlock_slurmctld(node_write_lock);
 		}
+#endif
 
 		/* Process any pending agent work */
 		agent_trigger(RPC_RETRY_INTERVAL, true);
@@ -2166,6 +2296,7 @@ static void *_slurmctld_background(void *no_data)
 		}
 
 		job_limit = NO_VAL;
+#ifndef SLURM_SIMULATOR
 		if (difftime(now, last_full_sched_time) >= sched_interval) {
 			slurm_mutex_lock(&sched_cnt_mutex);
 			/* job_limit = job_sched_cnt;	Ignored */
@@ -2183,6 +2314,7 @@ static void *_slurmctld_background(void *no_data)
 			}
 			slurm_mutex_unlock(&sched_cnt_mutex);
 		}
+//#ifndef SLURM_SIMULATOR
 		if (job_limit != NO_VAL) {
 			lock_slurmctld(job_write_lock2);
 			now = time(NULL);
@@ -2193,6 +2325,7 @@ static void *_slurmctld_background(void *no_data)
 				last_checkpoint_time = 0; /* force state save */
 			set_job_elig_time();
 		}
+#endif
 
 		if (slurmctld_conf.slurmctld_timeout &&
 		    (difftime(now, last_ctld_bu_ping) >
@@ -2209,6 +2342,7 @@ static void *_slurmctld_background(void *no_data)
 			unlock_slurmctld(job_node_read_lock);
 		}
 
+#ifndef SLURM_SIMULATOR
 		if (difftime(now, last_checkpoint_time) >=
 		    PERIODIC_CHECKPOINT) {
 			now = time(NULL);
@@ -2216,6 +2350,7 @@ static void *_slurmctld_background(void *no_data)
 			debug2("Performing full system state save");
 			save_all_state();
 		}
+#endif
 
 		if (difftime(now, last_node_acct) >= PERIODIC_NODE_ACCT) {
 			/* Report current node state to account for added
@@ -2371,6 +2506,7 @@ extern void ctld_assoc_mgr_init(slurm_trigger_callbacks_t *callbacks)
 
 	_init_tres();
 
+#ifndef SLURM_SIMULATOR
 	/* This thread is looking for when we get correct data from
 	   the database so we can update the assoc_ptr's in the jobs
 	*/
@@ -2378,6 +2514,7 @@ extern void ctld_assoc_mgr_init(slurm_trigger_callbacks_t *callbacks)
 		slurm_thread_create(&assoc_cache_thread,
 				    _assoc_cache_mgr, NULL);
 	}
+#endif
 
 }
 
@@ -3221,6 +3358,7 @@ static void _become_slurm_user(void)
 		info("Not running as root. Can't drop supplementary groups");
 	}
 
+#ifndef SLURM_SIMULATOR
 	/* Set GID to GID of SlurmUser */
 	if ((slurm_user_gid != getegid()) &&
 	    (setgid(slurm_user_gid))) {
@@ -3233,6 +3371,7 @@ static void _become_slurm_user(void)
 		fatal("Can not set uid to SlurmUser(%u): %m",
 		      slurmctld_conf.slurm_user_id);
 	}
+#endif
 }
 
 /*

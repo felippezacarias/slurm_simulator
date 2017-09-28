@@ -72,6 +72,9 @@
 
 #include "fair_tree.h"
 
+//#include "src/unittests_lib/tools.h"
+
+
 #define SECS_PER_DAY	(24 * 60 * 60)
 #define SECS_PER_WEEK	(7 * SECS_PER_DAY)
 
@@ -97,6 +100,7 @@ int slurmctld_tres_cnt = 0;
 int accounting_enforce = 0;
 #endif
 
+static void _my_sleep_prio(int secs);
 /*
  * These variables are required by the generic plugin interface.  If they
  * are not found in the plugin, the plugin loader will ignore it.
@@ -1409,6 +1413,24 @@ static void *_decay_thread(void *no_data)
 		/* repeat ;) */
 	}
 	return NULL;
+}
+
+static void _my_sleep_prio(int secs)
+{
+#ifndef SLURM_SIMULATOR
+	sleep(secs);
+#else
+	/* Since the backfill and time controling loops are synced, we cannot make
+	 * the sleep depend on "faked time", because it does not change while the
+	 * backfilling is running... and _my_sleep is called form in there.
+	 */
+	if (secs==0)
+		return;
+	time_t target_time=time(NULL)+secs;
+	while (time(NULL)<target_time)
+		usleep(10);
+
+#endif
 }
 
 /* If the specified job record satisfies the filter specifications in req_msg
