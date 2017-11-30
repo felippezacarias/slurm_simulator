@@ -180,6 +180,7 @@ struct jobcomp_info {
 	char *std_in;
 	char *std_out;
 	char *std_err;
+	uint16_t backfilled;
 };
 
 static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
@@ -270,6 +271,7 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 		if (job->details->std_err)
 			j->std_err = xstrdup(job->details->std_err);
 	}
+	j->backfilled = job->backfilled;
 
 	return (j);
 }
@@ -441,6 +443,7 @@ static char ** _create_environment (struct jobcomp_info *job)
 		_env_append (&env, "STDOUT",     job->std_out);
 	if (job->std_err)
 		_env_append (&env, "STDERR",     job->std_err);
+	_env_append (&env, "BACKFILLED", (job->backfilled ? "yes" : "no"));
 	mins2time_str(job->limit, time_str, sizeof(time_str));
 	_env_append (&env, "LIMIT", time_str);
 

@@ -664,6 +664,7 @@ struct job_record {
 	uint16_t batch_flag;		/* 1 or 2 if batch job (with script),
 					 * 2 indicates retry mode (one retry) */
 	char *batch_host;		/* host executing batch script */
+	uint32_t backfilled;
 	double billable_tres;		/* calculated billable tres for the
 					 * job, as defined by the partition's
 					 * billing weight. Recalculated upon job

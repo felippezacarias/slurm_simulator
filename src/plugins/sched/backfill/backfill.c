@@ -62,6 +62,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 #include "slurm/slurm.h"
 #include "slurm/slurmdb.h"
@@ -177,6 +178,12 @@ typedef struct backfill_user_usage {
 	slurmdb_bf_usage_t bf_usage;
 	uid_t uid;
 } bf_user_usage_t;
+
+static long long bf_sched_total_time = 0;
+static long bf_sched_counter = 0;
+static long bf_sched_checked = 0;
+static long bf_sched_queue_len = 0;
+static long bf_sched_backfilled = 0;
 
 /*********************** local variables *********************/
 static bool stop_backfill = false;
@@ -950,10 +957,14 @@ static void _do_diag_stats(struct timeval *tv1, struct timeval *tv2)
 	delta_t  = (tv2->tv_sec - tv1->tv_sec) * 1000000;
 	delta_t +=  tv2->tv_usec;
 	delta_t -=  tv1->tv_usec;
-	real_time = delta_t - bf_sleep_usec;
+	//real_time = delta_t - bf_sleep_usec;
+	real_time = delta_t;
 
+	if(real_time < 0) debug("stats: bf sched real_time negative!");
 	slurmctld_diag_stats.bf_cycle_counter++;
 	slurmctld_diag_stats.bf_cycle_sum += real_time;
+        bf_sched_total_time += real_time;
+        //debug("stats: bf sched total %" PRIu32 " usec. Backfill total time %lld", slurmctld_diag_stats.bf_cycle_sum, bf_sched_total_time);
 	slurmctld_diag_stats.bf_cycle_last = real_time;
 
 	slurmctld_diag_stats.bf_depth_sum += slurmctld_diag_stats.bf_last_depth;
@@ -964,6 +975,13 @@ static void _do_diag_stats(struct timeval *tv1, struct timeval *tv2)
 		slurmctld_diag_stats.bf_cycle_max = slurmctld_diag_stats.
 						    bf_cycle_last;
 	}
+
+        bf_sched_counter++;
+        bf_sched_queue_len = slurmctld_diag_stats.bf_last_depth;
+        bf_sched_checked = slurmctld_diag_stats.bf_last_depth_try;
+        bf_sched_backfilled = slurmctld_diag_stats.backfilled_jobs;
+              
+        debug("stats: bf total time %lld, counter %ld, number of jobs: tried %ld, in queue %ld, backfilled %ld", bf_sched_total_time, bf_sched_counter, bf_sched_checked, bf_sched_queue_len, bf_sched_backfilled);
 }
 
 static int _list_find_all(void *x, void *key)
@@ -1103,6 +1121,7 @@ extern void *backfill_agent(void *args)
 		}
 #endif
 #ifdef SLURM_SIMULATOR
+		debug("backfill: now %e, last_backfill_time %e, wait_time %e, backfill_interval %d, job_is_completing %d, many_pending_rpcs %d, !avail_front_end %d, !more_work %d", now, last_backfill_time, wait_time, backfill_interval, _job_is_completing(), _many_pending_rpcs(), !avail_front_end(NULL), !_more_work(last_backfill_time));
 		if (!((wait_time < backfill_interval) ||
 		    job_is_completing(NULL) || _many_pending_rpcs() ||
 		    !avail_front_end(NULL) || !_more_work(last_backfill_time))) {
@@ -2630,7 +2649,7 @@ skip_start:
 			_set_job_time_limit(job_ptr, orig_time_limit);
 			continue;
 		}
-
+                //info("backfill: node_space_recs %d, max_backfill_job_cnt %u",node_space_recs, max_backfill_job_cnt);
 		if (node_space_recs >= max_backfill_job_cnt) {
 			if (debug_flags & DEBUG_FLAG_BACKFILL) {
 				info("backfill: table size limit of %u reached",
@@ -2882,6 +2901,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 			srun_allocate(job_ptr);
 		else if (!IS_JOB_CONFIGURING(job_ptr))
 			launch_job(job_ptr);
+		job_ptr->backfilled = 1;
 		slurmctld_diag_stats.backfilled_jobs++;
 		slurmctld_diag_stats.last_backfilled_jobs++;
 		if (job_ptr->pack_job_id)
@@ -3033,6 +3053,7 @@ static void _add_reservation(uint32_t start_time, uint32_t end_reserve,
 				bit_copy(node_space[j].avail_bitmap);
 			node_space[i].next = node_space[j].next;
 			node_space[j].next = i;
+                        //info("backfill: at end greater start, increment node_space_recs %d", *node_space_recs);
 			(*node_space_recs)++;
 			placed = true;
 		}
@@ -3054,6 +3075,7 @@ static void _add_reservation(uint32_t start_time, uint32_t end_reserve,
 							 avail_bitmap);
 					node_space[i].next = node_space[j].next;
 					node_space[j].next = i;
+                                        //info("backfill: at placed true, increment node_space_recs %d", *node_space_recs);
 					(*node_space_recs)++;
 					break;
 				}

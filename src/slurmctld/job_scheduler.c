@@ -49,6 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+//#include <inttypes.h>
 
 #if HAVE_SYS_PRCTL_H
 #  include <sys/prctl.h>
@@ -151,6 +152,10 @@ static int sched_min_interval = 2;
 
 static int bb_array_stage_cnt = 10;
 extern diag_stats_t slurmctld_diag_stats;
+
+static long long normal_sched_total_time = 0;
+static long normal_sched_counter = 0;
+static long normal_sched_queue_len = 0;
 
 /*
  * Calculate how busy the system is by figuring out how busy each node is.
@@ -712,8 +717,13 @@ static void _do_diag_stats(long delta_t)
 	if (delta_t > slurmctld_diag_stats.schedule_cycle_max)
 		slurmctld_diag_stats.schedule_cycle_max = delta_t;
 
+        //if(delta_t < 0) debug("stats: normal sched delat_t negative!");
 	slurmctld_diag_stats.schedule_cycle_sum += delta_t;
 	slurmctld_diag_stats.schedule_cycle_last = delta_t;
+        normal_sched_total_time += delta_t;
+        normal_sched_counter++;
+        normal_sched_queue_len = slurmctld_diag_stats.schedule_queue_len;
+        debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
 	slurmctld_diag_stats.schedule_cycle_counter++;
 }
 

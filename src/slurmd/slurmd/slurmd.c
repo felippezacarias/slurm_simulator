@@ -302,7 +302,7 @@ void
 perform_global_sync() {
         while(1) {
                 sem_wait(mutexserver);
-                if (*global_sync_flag == 2) {
+                iif (*global_sync_flag == 1) {
                         sem_post(mutexserver);
                         break;
                 }
@@ -310,13 +310,13 @@ perform_global_sync() {
                 usleep(1000);
         }
 }
-/*void perform_global_sync_end()
+void perform_global_sync_end()
 {
 	sem_wait(mutexserver);
-        debug3("Finished with slurmd");
-        *global_sync_flag = 3;
+//        debug3("Finished with slurmd");
+        *global_sync_flag += 1;
         sem_post(mutexserver);
-}*/
+}
 
 void
 close_global_sync_sem() {
@@ -755,7 +755,7 @@ _simulator_helper(void *arg)
 			_send_sim_helper_cycle_msg(0);
 		}
 
-		//perform_global_sync();
+		perform_global_sync();
 
 	}
 	info("SIM: Simulator Helper finishing...");
