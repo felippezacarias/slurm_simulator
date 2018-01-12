@@ -107,6 +107,11 @@
 #endif
 
 #define BACKFILL_INTERVAL	30
+
+#ifndef BACKFILL_QUEUE_LIMIT
+#  define BACKFILL_QUEUE_LIMIT    50
+#endif
+
 #define BACKFILL_RESOLUTION	60
 #define BACKFILL_WINDOW		(24 * 60 * 60)
 #define BF_MAX_JOB_ARRAY_RESV	20
@@ -194,6 +199,7 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool config_flag = false;
 static uint64_t debug_flags = 0;
 static int backfill_interval = BACKFILL_INTERVAL;
+static int backfill_queue_limit = BACKFILL_QUEUE_LIMIT;
 static int bf_max_time = BACKFILL_INTERVAL;
 static int backfill_resolution = BACKFILL_RESOLUTION;
 static int backfill_window = BACKFILL_WINDOW;
@@ -686,6 +692,16 @@ static void _load_config(void)
 	} else {
 		backfill_interval = BACKFILL_INTERVAL;
 	}
+
+        /*ANA: Adding new bf parameter for limiting job queue depth, i.e., number of jobs in the queue considered to be backfilled */
+        if (sched_params && (tmp_ptr=strstr(sched_params, "bf_queue_limit=")))
+                backfill_queue_limit = atoi(tmp_ptr + 15);
+        if (backfill_queue_limit < 1) {
+                error("Invalid SchedulerParameters bf_queue_limit: %d",
+                      backfill_queue_limit);
+                backfill_queue_limit = BACKFILL_QUEUE_LIMIT;
+        }
+        /**********************************************************************/
 
 	if ((tmp_ptr = xstrcasestr(sched_params, "bf_max_time="))) {
 		bf_max_time = atoi(tmp_ptr + 12);
@@ -1751,6 +1767,13 @@ static int _attempt_backfill(void)
 				info("backfill: reached end of job queue");
 			break;
 		}
+                /* ANA: checking if job limit has been reached*/
+                if (job_test_count >= backfill_queue_limit) {
+                        if (debug_flags & DEBUG_FLAG_BACKFILL)
+                                info("backfill: reached test job limit");
+                        break;
+                }
+                /**********************************************************/
 
 		job_ptr          = job_queue_rec->job_ptr;
 		part_ptr         = job_queue_rec->part_ptr;
