@@ -235,6 +235,9 @@ extern slurmdb_cluster_rec_t *response_cluster_rec;
 extern bool   test_config;
 extern int    test_config_rc;
 
+#ifdef SLURM_SIMULATOR
+extern int backfill_interval;
+#endif
 /*****************************************************************************\
  *  NODE parameters and data structures, mostly in src/common/node_conf.h
 \*****************************************************************************/

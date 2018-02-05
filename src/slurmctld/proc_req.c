@@ -422,7 +422,7 @@ void slurmctld_req(slurm_msg_t *msg, connection_arg_t *arg)
 		break;
        	case MESSAGE_SIM_HELPER_CYCLE:
                _slurm_rpc_sim_helper_cycle(msg);
-               slurm_free_sim_helper_msg(msg->data);
+               //slurm_free_sim_helper_msg(msg->data);
                break;
 	case REQUEST_JOB_ALLOCATION_INFO:
 		_slurm_rpc_job_alloc_info(msg);
@@ -6332,90 +6332,6 @@ _slurm_rpc_dump_licenses(slurm_msg_t * msg)
 	xfree(dump);
 }
 
-
-
-char BF_SEM_NAME[] = "bf_sem";
-char BF_DONE_SEM_NAME[] = "bf_done_sem";
-sem_t* mutex_bf=NULL;
-sem_t* mutex_bf_done=NULL;
-
-int open_BF_sync_semaphore() {
-	mutex_bf = sem_open(BF_SEM_NAME, O_CREAT, 0644, 0);
-	if(mutex_bf == SEM_FAILED) {
-		error("unable to create backfill semaphore");
-		sem_unlink(BF_SEM_NAME);
-		return -1;
-	}
-
-	mutex_bf_done = sem_open(BF_DONE_SEM_NAME, O_CREAT, 0644, 0);
-	if(mutex_bf_done == SEM_FAILED) {
-		error("unable to create backfill done semaphore");
-		sem_unlink(BF_DONE_SEM_NAME);
-		return -1;
-	}
-
-	return 0;
-}
-
-void close_BF_sync_semaphore() {
-	if(mutex_bf != SEM_FAILED) sem_close(mutex_bf);
-	if(mutex_bf_done != SEM_FAILED) sem_close(mutex_bf_done);
-}
-
-static time_t last_helper_schedule_time=0;
-static time_t last_helper_backfill_time=0;
-#define HELPER_SCHEDULE_PERIOD_S 11
-#define HELPER_BACKFILL_PERIOD_S 23
-
-
-
-static void do_backfill() {
-	int value;
-	sem_post(mutex_bf);
-	sem_wait(mutex_bf_done);
-}
-
-static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
-{
-	if (mutex_bf==NULL) {
-		if(open_BF_sync_semaphore()==-1) {
-			error("Opening backfill semaphore! this may affect backfill"
-				"operations");
-		}
-	}
-	sim_helper_msg_t *helper_msg =
-                (sim_helper_msg_t *) msg->data;
-
-	while (total_finished_jobs < helper_msg->total_jobs_ended) {
-		debug3("Waiting complete job to arrive");
-		usleep(1000);
-	}
-	total_finished_jobs = 0;
-	while (finished_jobs_waiting_for_epilog > 0) {
-		debug3("Waiting epilog to finish");
-		usleep(1000);
-	}
-
-        debug3("Processing RPC: MESSAGE_SIM_HELPER_CYCLE for %d jobs",
-        		helper_msg->total_jobs_ended);
-        time_t current_time=time(NULL);
-	  if (get_scheduler_cnt() > 0) {
-		reset_scheduler_cnt();
-//        if (last_helper_schedule_time==0 ||
-//           (current_time-last_helper_schedule_time)>HELPER_SCHEDULE_PERIOD_S) {
-        	schedule(0);
-        	last_helper_schedule_time=current_time;
-        }
-        if (last_helper_backfill_time==0 ||
-        	(current_time-last_helper_backfill_time)>HELPER_BACKFILL_PERIOD_S) {
-        	info("unlocking backfill");
-		do_backfill();
-        	last_helper_backfill_time=current_time;
-        }
-
-        slurm_send_rc_msg(msg, SLURM_SUCCESS);
-}
-
 /* Free memory used to track RPC usage by type and user */
 extern void free_rpc_stats(void)
 {
@@ -7106,3 +7022,88 @@ inline static void  _slurm_rpc_set_fs_dampening_factor(slurm_msg_t *msg)
 	info("Set FairShareDampeningFactor to %u", factor);
 	slurm_send_rc_msg(msg, SLURM_SUCCESS);
 }
+
+#ifdef SLURM_SIMULATOR
+char BF_SEM_NAME[] = "bf_sem";
+char BF_DONE_SEM_NAME[] = "bf_done_sem";
+sem_t* mutex_bf=NULL;
+sem_t* mutex_bf_done=NULL;
+
+int open_BF_sync_semaphore() {
+        mutex_bf = sem_open(BF_SEM_NAME, O_CREAT, 0644, 0);
+        if(mutex_bf == SEM_FAILED) {
+                error("unable to create backfill semaphore");
+                sem_unlink(BF_SEM_NAME);
+                return -1;
+        }
+
+        mutex_bf_done = sem_open(BF_DONE_SEM_NAME, O_CREAT, 0644, 0);
+        if(mutex_bf_done == SEM_FAILED) {
+                error("unable to create backfill done semaphore");
+                sem_unlink(BF_DONE_SEM_NAME);
+                return -1;
+        }
+
+        return 0;
+}
+
+void close_BF_sync_semaphore() {
+        if(mutex_bf != SEM_FAILED) sem_close(mutex_bf);
+        if(mutex_bf_done != SEM_FAILED) sem_close(mutex_bf_done);
+}
+
+static time_t last_helper_schedule_time=0;
+static time_t last_helper_backfill_time=0;
+#define HELPER_SCHEDULE_PERIOD_S 11
+#define HELPER_BACKFILL_PERIOD_S 23
+
+
+
+static void do_backfill() {
+        int value;
+        sem_post(mutex_bf);
+        sem_wait(mutex_bf_done);
+}
+
+static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
+{
+        if (mutex_bf==NULL) {
+                if(open_BF_sync_semaphore()==-1) {
+                        error("Opening backfill semaphore! this may affect backfill"
+                                "operations");
+                }
+        }
+        sim_helper_msg_t *helper_msg =
+                (sim_helper_msg_t *) msg->data;
+
+        while (total_finished_jobs < helper_msg->total_jobs_ended) {
+                debug3("Waiting complete job to arrive");
+                usleep(1000);
+        }
+        total_finished_jobs = 0;
+        while (finished_jobs_waiting_for_epilog > 0) {
+                debug3("Waiting epilog to finish");
+                usleep(1000);
+        }
+
+        debug3("Processing RPC: MESSAGE_SIM_HELPER_CYCLE for %d jobs",
+                        helper_msg->total_jobs_ended);
+        time_t current_time=time(NULL);
+          if (get_scheduler_cnt() > 0) {
+                reset_scheduler_cnt();
+//        if (last_helper_schedule_time==0 ||
+//           (current_time-last_helper_schedule_time)>HELPER_SCHEDULE_PERIOD_S) {
+                schedule(0);
+                last_helper_schedule_time=current_time;
+        }
+        if (last_helper_backfill_time==0 ||
+                /*(current_time-last_helper_backfill_time)>HELPER_BACKFILL_PERIOD_S) {*/
+                (current_time-last_helper_backfill_time)>backfill_interval) {
+                info("unlocking backfill, backfill_interval %d", backfill_interval);
+                do_backfill();
+                last_helper_backfill_time=current_time;
+        }
+
+        slurm_send_rc_msg(msg, SLURM_SUCCESS);
+}
+#endif

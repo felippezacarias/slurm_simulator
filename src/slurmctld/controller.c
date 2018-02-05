@@ -120,7 +120,6 @@
 #include "src/slurmctld/srun_comm.h"
 #include "src/slurmctld/state_save.h"
 #include "src/slurmctld/trigger_mgr.h"
-//#include "src/unittests_lib/tools.h"
 
 #ifdef SLURM_SIMULATOR
 #include <fcntl.h>           /* For O_* constants */
@@ -129,7 +128,6 @@
 #include <pthread.h>
 #include "src/common/slurm_sim.h"
 #endif
-
 
 #define DEFAULT_DAEMONIZE 1	/* Run as daemon by default if set */
 #define DEFAULT_RECOVER   1	/* Default state recovery on restart
@@ -226,7 +224,7 @@ FILE *stats = NULL;
 char SEM_NAME[]		= "serversem";
 sem_t* mutexserver	= SEM_FAILED;
 int total_log_jobs=0;
-//bool terminate_simulation_from_ctr=0; /* ANA: it will be read by sim_mgr in order to terminate simulation when all jobs have finished. */
+int backfill_interval=30; //initialize here global variable backfill interval to the default value
 #endif
 
 /*
@@ -1322,42 +1320,6 @@ static void *_slurmctld_rpc_mgr(void *no_data)
 	return NULL;
 }
 
-/* st on 20151020 */
-#ifdef SLURM_SIMULATOR
-int
-open_global_sync_sem() {
-	int iter = 0;
-	while (mutexserver == SEM_FAILED && iter < 10) {
-		mutexserver = sem_open(SEM_NAME, 0, 0644, 0);
-		if(mutexserver == SEM_FAILED) sleep(1);
-		++iter;
-	}
-
-	if(mutexserver == SEM_FAILED)
-		return -1;
-	else
-		return 0;
-}
-
-void
-perform_global_sync() {
-	while(*global_sync_flag != 3) {
-		debug("global_sync_flag: %d", *global_sync_flag);
-		usleep(100000); /* one-tenth second */
-	}
-
-	sem_wait(mutexserver);
-	debug3("Finished with slurmctld");
-	*global_sync_flag = 1;
-	sem_post(mutexserver);
-}
-void
-close_global_sync_sem() {
-	if(mutexserver != SEM_FAILED) sem_close(mutexserver);
-}
-#endif
-/* st on 20151020 */
-
 /*
  * _service_connection - service the RPC
  * IN/OUT arg - really just the connection's file descriptor, freed
@@ -1369,12 +1331,14 @@ static void *_service_connection(void *arg)
 	connection_arg_t *conn = (connection_arg_t *) arg;
 	void *return_code = NULL;
 	slurm_msg_t msg;
+	int do_sync_flag=0;
 
 #if HAVE_SYS_PRCTL_H
 	if (prctl(PR_SET_NAME, "srvcn", NULL, NULL, NULL) < 0) {
 		error("%s: cannot set my name to %s %m", __func__, "srvcn");
 	}
 #endif
+	debug("In service_connection");
 	slurm_msg_t_init(&msg);
 /*	if (msg->msg_type == MESSAGE_SIM_HELPER_CYCLE)
 		if(open_global_sync_sem() == -1)
@@ -1409,13 +1373,22 @@ static void *_service_connection(void *arg)
 		error ("close(%d): %m",  conn->newsockfd);
 
 cleanup:
+	if (msg.msg_type == MESSAGE_SIM_HELPER_CYCLE){
+                do_sync_flag=1;
+        }
 	slurm_free_msg_members(&msg);
 	xfree(arg);
 	server_thread_decr();
-
-	if (msg->msg_type == MESSAGE_SIM_HELPER_CYCLE)
-		perform_global_sync(); /* st on 20151020 */
-	pthread_exit(NULL);
+	if (do_sync_flag){
+                perform_global_sync(); /* st on 20151020 */
+		//slurm_free_sim_helper_msg(msg);
+	} //else{
+	//usleep(1000);
+	//slurm_free_msg_members(&msg);
+	//}
+	//xfree(arg);
+        //server_thread_decr();
+	pthread_exit(NULL); /*This line does not exist in v17 only in simulator-v14*/
 	return return_code;
 }
 

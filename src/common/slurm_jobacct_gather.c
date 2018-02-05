@@ -1067,6 +1067,7 @@ extern void jobacctinfo_pack(jobacctinfo_t *jobacct,
 			     uint16_t rpc_version, uint16_t protocol_type,
 			     Buf buffer)
 {
+	int i = 0;
 	bool no_pack;
 	uint64_t tmp_uint64;
 	double tmp_dbl;
@@ -1080,7 +1081,7 @@ extern void jobacctinfo_pack(jobacctinfo_t *jobacct,
 
 	pack8((uint8_t) 1, buffer);
 
-#ifdef SLURM_SIMULATOR
+/*#ifdef SLURM_SIMULATOR
 		for (i = 0; i < 6; i++)
 			pack64(0, buffer);
 		for (i = 0; i < 8; i++)
@@ -1090,7 +1091,7 @@ extern void jobacctinfo_pack(jobacctinfo_t *jobacct,
 		for (i = 0; i < 6; i++)
 			_pack_jobacct_id(NULL, rpc_version, buffer);
 		return;
-#endif
+#endif*/
 
 	if (rpc_version >= SLURM_18_08_PROTOCOL_VERSION) {
 		pack32((uint32_t)jobacct->user_cpu_sec, buffer);
