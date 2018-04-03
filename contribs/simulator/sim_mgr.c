@@ -308,7 +308,8 @@ time_mgr(void *arg) {
 
 	memset(timemgr_data, 0, 32); /* st on 14-October-2015 moved from build_shared_memory to here as only sim_mgr should change the values, even if someone else "built" the shm segment. */
 
-	current_sim[0]   = sim_start_point;
+	current_sim[0]   = 1;
+	//current_sim[0]   = sim_start_point;
 	current_micro[0] = 0;
 
 	/*signal (SIGUSR2, handlerSignal);*/
@@ -661,7 +662,8 @@ init_trace_info(void *ptr, int op) {
 		*new_trace_record = *(job_trace_t *)ptr;
 
 		if (count == 0) {
-			sim_start_point = new_trace_record->submit - 60;
+			sim_start_point = new_trace_record->submit; //Why from the first submit, better current_sim[0]=1 and shift the input trace to start at for e.g. 10s? 
+			//sim_start_point = new_trace_record->submit - 60; //Why -60??
 			/*first_submit = new_trace_record->submit;*/
 		}
 
