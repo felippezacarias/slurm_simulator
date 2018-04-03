@@ -957,7 +957,7 @@ extern void *backfill_agent(void *args)
 	last_backfill_time = time(NULL);
 #ifdef SLURM_SIMULATOR
         open_BF_sync_semaphore_pg();
-        backfill_interval=2;
+        //backfill_interval=2;
 #endif
 	pack_job_list = list_create(_pack_map_del);
 	while (!stop_backfill) {
@@ -1005,11 +1005,11 @@ extern void *backfill_agent(void *args)
 #ifdef SLURM_SIMULATOR
                 //debug("backfill: now %ld, last_backfill_time %ld, wait_time %ld, backfill_interval %d, job_is_completing %d, many_pending_rpcs %d, !avail_front_end %d, !more_work %d", now, last_backfill_time, wait_time, backfill_interval, _job_is_completing(), _many_pending_rpcs(), !avail_front_end(NULL), !_more_work(last_backfill_time));
                 debug("backfill: now %ld, last_backfill_time %ld, wait_time %lf, backfill_interval %d ", now, last_backfill_time, wait_time, backfill_interval);
-                /*if (!((wait_time < backfill_interval) ||
+                if (!((wait_time < backfill_interval) ||
                     job_is_completing(NULL) || _many_pending_rpcs() ||
-                    !avail_front_end(NULL) || !_more_work(last_backfill_time))) {*/
-		if (!(job_is_completing(NULL) || _many_pending_rpcs() ||
                     !avail_front_end(NULL) || !_more_work(last_backfill_time))) {
+		/*if (!(job_is_completing(NULL) || _many_pending_rpcs() ||
+                    !avail_front_end(NULL) || !_more_work(last_backfill_time))) {*/
 			lock_slurmctld(all_locks);
 			if ((backfill_cnt++ % 2) == 0)
 				_pack_start_clear();
@@ -1129,7 +1129,7 @@ static bool _job_runnable_now(struct job_record *job_ptr)
 	return true;
 }
 
-static int attempt_backfill(void)
+static int _attempt_backfill(void)
 {
 	DEF_TIMERS;
 	List job_queue;
