@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
             if(i==3) { printf("%s", p); job_arr[idx].duration = atoi(p); }   
             if(i==7) { printf("%s", p); job_arr[idx].tasks = ceil((float) (atoi(p)/CPUS_PER_NODE)); }
             //if(i==7) { printf("%s", p); job_arr[idx].tasks = ceil((float) atoi(p)); }
-            if(i==8) { printf("%s", p); job_arr[idx].wclimit = atoi(p); }   
+            if(i==8) { printf("%s", p); job_arr[idx].wclimit = ceil((double)atoi(p)/60); }   
             //if(i==11) { printf("%s", p); strcpy(job_arr[idx].username, p); }   
             //if(i==12) { printf("%s", p); strcpy(job_arr[idx].account, p); }   
             //if(i==15) { printf("%s", p); strcpy(job_arr[idx].partition, p); }   
