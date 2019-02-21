@@ -7,14 +7,15 @@ LIBS = @LIBS@ -lrt
 
 AM_CPPFLAGS = -I$(top_srcdir)
 
-bin_PROGRAMS = sim_mgr simdate edit_trace simqsnap  list_trace trace_builder update_trace mysql_trace_builder
+#bin_PROGRAMS = sim_mgr simdate edit_trace simqsnap  list_trace trace_builder update_trace mysql_trace_builder
+bin_PROGRAMS = sim_mgr simdate edit_trace simqsnap  list_trace trace_builder update_trace
 
 sim_mgr_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 simdate_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 list_trace_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 trace_builder_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 update_trace_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
-mysql_trace_builder_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
+#mysql_trace_builder_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 simqsnap_LDADD = 	$(top_builddir)/src/api/libslurm.o $(DL_LIBS) $(CMD_LDFLAGS)
 
 #noinst_HEADERS =
@@ -25,7 +26,7 @@ simqsnap_SOURCES = simqsnap.c
 list_trace_SOURCES = list_trace.c sim_trace.c
 trace_builder_SOURCES = trace_builder.c
 update_trace_SOURCES = update_trace.c
-mysql_trace_builder_SOURCES = mysql_trace_builder.c
+#mysql_trace_builder_SOURCES = mysql_trace_builder.c
 
 force:
 $(simdate_LDADD) : force
@@ -52,6 +53,6 @@ trace_builder_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) \
 update_trace_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) \
 	$(HWLOC_LDFLAGS) $(HWLOC_LIBS)
 
-mysql_trace_builder_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) $(MYSQL_CFLAGS) \
-	$(HWLOC_LDFLAGS) $(HWLOC_LIBS) $(MYSQL_LIBS)
-mysql_trace_builder_CFLAGS = $(MYSQL_CFLAGS)
+#mysql_trace_builder_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) $(MYSQL_CFLAGS) \
+#	$(HWLOC_LDFLAGS) $(HWLOC_LIBS) $(MYSQL_LIBS)
+#mysql_trace_builder_CFLAGS = $(MYSQL_CFLAGS)
