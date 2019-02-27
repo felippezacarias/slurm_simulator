@@ -3242,6 +3242,9 @@ static int _build_node_list(struct job_record *job_ptr,
 	bitstr_t *tmp_feature;
 	bool has_xor = false;
 	bool resv_overlap = false;
+	bitstr_t *config_nodes_part_bitmap = NULL;
+	uint64_t requested_mem = 0;
+	uint64_t config_total_mem_avail = 0, part_total_mem_avail = 0;
 
 	if ((job_ptr->details->min_nodes == 0) &&
 	    (job_ptr->details->max_nodes == 0)) {
@@ -3316,6 +3319,21 @@ static int _build_node_list(struct job_record *job_ptr,
 	node_set_len = list_count(config_list) * 4 + 1;
 	node_set_ptr = (struct node_set *)
 			xmalloc(sizeof(struct node_set) * node_set_len);
+
+	//FELIPPE: first check if the required memory fits using all config
+	config_iterator = list_iterator_create(config_list);
+	debug5("FELIPPE: %s checking total partition memory avialable",__func__);
+	while ((config_ptr = (struct config_record *)
+			list_next(config_iterator))) {
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
+			part_total_mem_avail += (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+	}
+	list_iterator_destroy(config_iterator);
+	debug5("FELIPPE: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
+
+
 	config_iterator = list_iterator_create(config_list);
 	while ((config_ptr = (struct config_record *)
 			list_next(config_iterator))) {
@@ -3326,9 +3344,22 @@ static int _build_node_list(struct job_record *job_ptr,
 					     config_ptr->cpus);
 		if (detail_ptr->pn_min_cpus <= adj_cpus)
 			cpus_ok = true;
+		//FELIPPE: check if meemory per cpu or mim mem node is less than configuration mem
 		if ((detail_ptr->pn_min_memory & (~MEM_PER_CPU)) <=
-		    config_ptr->real_memory)
+		    config_ptr->real_memory){
 			mem_ok = true;
+		}else{
+			//FELIPPE: else check if all nodes on config or partition memory  fits the requested mem
+			requested_mem = (detail_ptr->pn_min_memory & (~MEM_PER_CPU));
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
+			config_total_mem_avail = (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
+			debug5("FELIPPE: %s requested_mem %lu config_nodes_on_part %zu config_realmemory %lu config_total_mem_avail %lu",
+					__func__,requested_mem,bit_set_count(config_nodes_part_bitmap),config_ptr->real_memory,config_total_mem_avail);
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+			if((requested_mem < config_total_mem_avail) || (requested_mem < part_total_mem_avail))
+				mem_ok = true;
+		}
 		if (detail_ptr->pn_min_tmp_disk <= config_ptr->tmp_disk)
 			disk_ok = true;
 		if (!mc_ptr)
@@ -3368,6 +3399,7 @@ static int _build_node_list(struct job_record *job_ptr,
 		}
 		node_set_ptr[node_set_inx].nodes =
 			bit_set_count(node_set_ptr[node_set_inx].my_bitmap);
+		//FELIPPE: if fastschedule==0 it will check each node configuration. I did not modify
 		if (check_node_config &&
 		    (node_set_ptr[node_set_inx].nodes != 0)) {
 			_filter_nodes_in_set(&node_set_ptr[node_set_inx],
