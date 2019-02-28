@@ -60,6 +60,9 @@
  * cpu_array_reps	- Number of consecutive nodes on which cpu_array_value
  *			  is duplicated. See NOTES below.
  * memory_allocated	- MB per node reserved for the job or step
+ * memory_nhosts	- Number of hosts allocated to share memory
+ * memory_nodes		- Name of nodes sharing memory
+ * memory_pool_bitmap - bitmap of allocated memory nodes
  * memory_used		- MB per node of memory consumed by job steps
  * nhosts		- Number of nodes in the allocation.  On a
  *                        bluegene machine this represents the number
@@ -108,6 +111,9 @@ struct job_resources {
 	uint16_t *cpus_used;
 	uint16_t *cores_per_socket;
 	uint64_t *memory_allocated;
+	uint32_t  memory_nhosts;
+	char 	 *memory_nodes;
+	bitstr_t *memory_pool_bitmap;
 	uint64_t *memory_used;
 	uint32_t  nhosts;
 	bitstr_t *node_bitmap;

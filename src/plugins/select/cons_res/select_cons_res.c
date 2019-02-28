@@ -210,6 +210,7 @@ extern select_nodeinfo_t *select_p_select_nodeinfo_alloc(void);
 extern int select_p_select_nodeinfo_free(select_nodeinfo_t *nodeinfo);
 
 /* Procedure Declarations */
+static void bitmap_index(bitstr_t *bitmap, int *i_first, int *i_last);
 static int _add_job_to_res(struct job_record *job_ptr, int action);
 static int _job_expand(struct job_record *from_job_ptr,
 		       struct job_record *to_job_ptr);
@@ -239,6 +240,14 @@ struct sort_support {
 	struct job_resources *tmpjobs;
 };
 static int _compare_support(const void *, const void *);
+
+static void bitmap_index(bitstr_t *bitmap, int *i_first, int *i_last){
+	i_first = bit_ffs(bitmap);
+	if (i_first == -1)
+		i_last = -2;
+	else
+		i_last = bit_fls(bitmap);
+}
 
 static void _dump_job_res(struct job_resources *job) {
 	char str[64];
@@ -834,11 +843,12 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 	if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
 		_dump_job_res(job);
 
-	i_first = bit_ffs(job->node_bitmap);
-	if (i_first == -1)
-		i_last = -2;
-	else
-		i_last = bit_fls(job->node_bitmap);
+	//i_first = bit_ffs(job->node_bitmap);
+	//if (i_first == -1)
+	//	i_last = -2;
+	//else
+	//	i_last = bit_fls(job->node_bitmap);
+	bitmap_index(job->node_bitmap,&i_first,&i_last);
 	for (i = i_first, n = -1; i <= i_last; i++) {
 		if (!bit_test(job->node_bitmap, i))
 			continue;
@@ -880,6 +890,20 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 			adapt_layouts(job, job_ptr->details->cpu_freq_max, n,
 				      node_ptr->name, true);
 		}
+	}
+
+	//FELIPPE: Doing node usage actualization for memory pool
+	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for memory_pool nodes",__func__,job_ptr->job_id);
+	bitmap_index(job->memory_pool_bitmap,&i_first,&i_last);
+	n = job->nhosts;
+	for (i = i_first; i <= i_last; i++) {
+		if (!bit_test(job->memory_pool_bitmap, i))
+			continue;
+		n++;
+		select_node_usage[i].alloc_memory +=
+				job->memory_allocated[n];
+		select_node_usage[i].node_state +=
+					job->node_req;
 	}
 	
 
@@ -923,6 +947,7 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 			/* No row available to record this job */
 		}
 		/* update the node state */
+		bitmap_index(job->node_bitmap,&i_first,&i_last);
 		for (i = i_first, n = -1; i <= i_last; i++) {
 			if (bit_test(job->node_bitmap, i)) {
 				n++;

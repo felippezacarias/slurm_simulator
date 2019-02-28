@@ -388,7 +388,7 @@ static int _build_gres_alloc_string(struct job_record *job_ptr)
  */
 extern void allocate_nodes(struct job_record *job_ptr)
 {
-	int i;
+	int i, n = 0;
 	struct node_record *node_ptr;
 	bool has_cloud = false, has_cloud_power_save = false;
 
@@ -403,6 +403,23 @@ extern void allocate_nodes(struct job_record *job_ptr)
 				has_cloud_power_save = true;
 		}
 		make_node_alloc(node_ptr, job_ptr);
+	}
+
+	//FELIPPE: Dealing with memory nodes
+	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for memory_pool nodes",__func__,job_ptr->job_id);
+	n = job_ptr->job_resrcs->nhosts;
+	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
+		i++, node_ptr++) {
+		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
+			continue;
+
+		if (IS_NODE_CLOUD(node_ptr)) {
+			has_cloud = true;
+			if (IS_NODE_POWER_SAVE(node_ptr))
+				has_cloud_power_save = true;
+		}
+		make_node_memory_alloc(node_ptr, job_ptr, n);
+		n++;
 	}
 
 	last_node_update = time(NULL);
@@ -2570,7 +2587,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		goto cleanup;
 	}
 
-	/* This could be set in the select plugin so we want to keep the flag */
+	/* This could be set in thbicho e select plugin so we want to keep the flag */
 	configuring = IS_JOB_CONFIGURING(job_ptr);
 
 	job_ptr->job_state = JOB_RUNNING;
@@ -2632,6 +2649,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	 * message. */
 	jobacct_storage_job_start_direct(acct_db_conn, job_ptr);
 
+	//FELIPPE: does the prolog need to be executed on memory nodes?
 	prolog_slurmctld(job_ptr);
 	reboot_job_nodes(job_ptr);
 	gs_job_start(job_ptr);
@@ -3737,6 +3755,7 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 	struct node_record *node_ptr;
 	char *this_node_name;
 	int node_inx = 0;
+	uint32_t mem_nodes = 0;
 
 	if ((job_ptr->node_bitmap == NULL) || (job_ptr->nodes == NULL)) {
 		/* No nodes allocated, we're done... */
@@ -3745,12 +3764,15 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		return;
 	}
 
+	mem_nodes = job_ptr->job_resrcs->memory_nhosts;
+
 	/* Use hostlist here to ensure ordering of info matches that of srun */
 	if ((host_list = hostlist_create(job_ptr->nodes)) == NULL)
 		fatal("hostlist_create error for %s: %m", job_ptr->nodes);
+	//FELIPPE: maybe this total_nodes could be memory_nodes + allocated nodes
 	job_ptr->total_nodes = job_ptr->node_cnt = hostlist_count(host_list);
 	xrealloc(job_ptr->node_addr,
-		 (sizeof(slurm_addr_t) * job_ptr->node_cnt));
+		 (sizeof(slurm_addr_t) * (job_ptr->node_cnt + mem_nodes)));
 
 #ifdef HAVE_FRONT_END
 	if (new_alloc) {
@@ -3783,9 +3805,25 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		free(this_node_name);
 	}
 	hostlist_destroy(host_list);
-	if (job_ptr->node_cnt != node_inx) {
+	if ((host_list = hostlist_create(job_ptr->job_resrcs->memory_nodes)) == NULL)
+		fatal("hostlist_create error for memory nodes %s: %m", job_ptr->job_resrcs->memory_nodes);
+	
+	debug5("FELIPPE: %s Adding memory nodes[%u] address to job_id %u",__func__,mem_nodes,job_ptr->job_id);
+	while ((this_node_name = hostlist_shift(host_list))) {
+		if ((node_ptr = find_node_record(this_node_name))) {
+			memcpy(&job_ptr->node_addr[node_inx++],
+			       &node_ptr->slurm_addr, sizeof(slurm_addr_t));
+		} else {
+			error("Invalid node %s in JobId=%u",
+			      this_node_name, job_ptr->job_id);
+		}
+		free(this_node_name);
+	}
+	hostlist_destroy(host_list);
+
+	if ((job_ptr->node_cnt + mem_nodes) != node_inx) {
 		error("Node count mismatch for JobId=%u (%u,%u)",
-		      job_ptr->job_id, job_ptr->node_cnt, node_inx);
+		      job_ptr->job_id, (job_ptr->node_cnt + mem_nodes), node_inx);
 	}
 }
 
