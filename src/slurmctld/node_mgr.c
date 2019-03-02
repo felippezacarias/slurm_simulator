@@ -3668,6 +3668,8 @@ extern void make_node_comp(struct node_record *node_ptr,
 	}
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 
+	//FELIPPE: For memory nodes it will only set idle_bitmap set if it was only 
+	//FELIPPE: running this job
 	if ((node_ptr->run_job_cnt  == 0) &&
 	    (node_ptr->comp_job_cnt == 0)) {
 		bit_set(idle_node_bitmap, inx);

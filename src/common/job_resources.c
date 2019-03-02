@@ -409,6 +409,9 @@ extern void free_job_resources(job_resources_t **job_resrcs_pptr)
 	job_resources_t *job_resrcs_ptr = *job_resrcs_pptr;
 
 	if (job_resrcs_ptr) {
+		//FELIPPE:Cleaning up memory pool bitmap
+		FREE_NULL_BITMAP(job_resrcs_ptr->memory_pool_bitmap);
+		xfree(job_resrcs_ptr->memory_nodes);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap_used);
 		xfree(job_resrcs_ptr->cores_per_socket);

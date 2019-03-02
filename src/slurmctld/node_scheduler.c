@@ -522,6 +522,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	kill_job->job_state = job_ptr->job_state;
 	kill_job->job_uid   = job_ptr->user_id;
 	kill_job->nodes     = xstrdup(job_ptr->nodes);
+	kill_job->memory_nodes     = xstrdup(job_ptr->job_resrcs->memory_nodes);
 	kill_job->time      = time(NULL);
 	kill_job->start_time = job_ptr->start_time;
 	kill_job->select_jobinfo = select_g_select_jobinfo_copy(
@@ -2330,7 +2331,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 					       req_nodes, test_only,
 					       &preemptee_job_list, can_reboot);
 	}
-
+	
 	/* Set this guess here to give the user tools an idea
 	 * of how many nodes Slurm is planning on giving the job.
 	 * This needs to be done on success or not.  It means the job
@@ -2506,6 +2507,9 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	job_ptr->bit_flags &= ~JOB_KILL_HURRY;
 	job_ptr->job_state &= ~JOB_POWER_UP_NODE;
 	FREE_NULL_BITMAP(job_ptr->node_bitmap);
+	//FELIPPE:Cleaning up memory pool bitmap It can't happen otherwise Seg fault is risen
+	//if(job_ptr->job_resrcs)
+	//	FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 	xfree(job_ptr->nodes);
 	xfree(job_ptr->sched_nodes);
 	job_ptr->exit_code = 0;
@@ -2692,8 +2696,12 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		xfree(node_set_ptr);
 	}
 
-	if (error_code != SLURM_SUCCESS)
+	if (error_code != SLURM_SUCCESS){
 		FREE_NULL_BITMAP(job_ptr->node_bitmap);
+		//FELIPPE:Cleaning up memory pool bitmap
+		if(job_ptr->job_resrcs)
+			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+	}
 
 #ifdef HAVE_BG
 	if (error_code != SLURM_SUCCESS)

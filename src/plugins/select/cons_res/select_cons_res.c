@@ -894,16 +894,18 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 
 	//FELIPPE: Doing node usage actualization for memory pool
 	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for memory_pool nodes",__func__,job_ptr->job_id);
+	if(job->memory_pool_bitmap == NULL)
+		debug5("FELIPPE: %s  memory_pool nodes NULL nodes_name %s node %u",__func__,job_ptr->job_id,job->memory_nodes,job->memory_nhosts);
 	bitmap_index(job->memory_pool_bitmap,&i_first,&i_last);
 	n = job->nhosts;
 	for (i = i_first; i <= i_last; i++) {
 		if (!bit_test(job->memory_pool_bitmap, i))
-			continue;
-		n++;
+			continue;		
 		select_node_usage[i].alloc_memory +=
 				job->memory_allocated[n];
 		select_node_usage[i].node_state +=
 					job->node_req;
+		n++;
 	}
 	
 
@@ -1201,7 +1203,7 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 	struct job_resources *job = job_ptr->job_resrcs;
 	struct node_record *node_ptr;
 	int first_bit, last_bit;
-	int i, n;
+	int i, n, idx;
 	List gres_list;
 
 	if (select_state_initializing) {
@@ -1266,6 +1268,38 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 		}
 	}
 
+	//FELIPPE: Updating the node_usage structure for memory nodes
+	idx = job->nhosts;
+	bitmap_index(job->memory_pool_bitmap,&first_bit,&last_bit);
+	for (i = first_bit; i <= last_bit; i++) {
+		if (!bit_test(job->memory_pool_bitmap, i))
+			continue;
+
+		if (action != 2) {
+			debug5("FELIPPE: %s Deallocating job resources of job_id %u memory_node %d idx %d memory_allocated %lu",
+					__func__,job_ptr->job_id,i,idx,job->memory_allocated[idx]);
+			if (node_usage[i].alloc_memory <
+			    job->memory_allocated[idx]) {
+				error("cons_res: node %s memory is "
+				      "under-allocated (%"PRIu64"-%"PRIu64") "
+				      "for job %u",
+				      node_ptr->name,
+				      node_usage[i].alloc_memory,
+				      job->memory_allocated[idx],
+				      job_ptr->job_id);
+				node_usage[i].alloc_memory = 0;
+			} else
+				node_usage[i].alloc_memory -=
+					job->memory_allocated[idx];
+		idx++;
+		}
+		//if ((powercap_get_cluster_current_cap() != 0) &&
+		//    (which_power_layout() == 2)) {
+		//	adapt_layouts(job, job_ptr->details->cpu_freq_max, n,
+		//		      node_ptr->name, false);
+		//}
+	}
+
 	/* subtract cores */
 	if (action != 1) {
 		/* reconstruct rows with remaining jobs */
@@ -1321,6 +1355,8 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 			 * the removal of this job. If all cores are now
 			 * available, set node_state = NODE_CR_AVAILABLE
 			 */
+			//FELIPPE: Updating index
+			bitmap_index(job->node_bitmap,&first_bit,&last_bit);
 			for (i = first_bit, n = -1; i <= last_bit; i++) {
 				if (bit_test(job->node_bitmap, i) == 0)
 					continue;

@@ -2961,7 +2961,9 @@ static int _eval_memory(struct job_record *job_ptr,
 			if (!bit_test(memory_pool_map, i))
 				continue;
 			free_mem = select_node_record[i].real_memory -
-						node_usage[i].alloc_memory;
+						node_usage[i].alloc_memory;			
+			debug5("FELIPPE: %s [memory node %d free_mem %lu] total allocated up now %lu",
+					__func__,i,free_mem,tot_alloc_mem);
 			tot_alloc_mem += free_mem;
 			mem_nodes++;
 			if(tot_alloc_mem > tot_req_mem){
@@ -2978,8 +2980,8 @@ static int _eval_memory(struct job_record *job_ptr,
 	}
 	else
 	{
-		debug5("FELIPPE: %s for job_id %u not requested memory nodes",__func__,job_ptr->job_id);
 		bit_clear_all(memory_pool_map);
+		debug5("FELIPPE: %s for job_id %u does not need memory nodes",__func__,job_ptr->job_id);		
 		error_code = SLURM_SUCCESS;
 	}	
 
@@ -3003,12 +3005,6 @@ static int _choose_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 	if (job_ptr->details->req_node_bitmap)
 		reqmap = job_ptr->details->req_node_bitmap;
 
-	//FELIPPE: bitstring that will hold nodes with free_mem
-	debug5("FELIPPE: %s Creating/cleaning memory_pool_bitmap",__func__);
-	if(memory_pool_map != NULL)
-			FREE_NULL_BITMAP(memory_pool_map);
-	 
-	memory_pool_map = bit_copy(node_map);
 
 	/* clear nodes from the bitmap that don't have available resources */
 	//FELIPPE: Here we can't clear nodes without checking if they have 
@@ -3060,7 +3056,10 @@ static int _choose_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 		//FELIPPE: _eval_memory()
 		//FELIPPE: return nodes available to be memory pool
 		bit_and_not(memory_pool_map,node_map);
+		debug5("FELIPPE: %s After bit_and_not memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 		ec = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage);
+		debug5("FELIPPE: %s error_code %d after _eval_memory",__func__,ec);
+		debug5("FELIPPE: %s After _eval_memory memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 		FREE_NULL_BITMAP(origmap);
 		return ec;
 	}
@@ -3187,9 +3186,18 @@ static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 		min_nodes = MAX(min_nodes, i);
 	}
 
+	//FELIPPE: bitstring that will hold nodes with free_mem
+	debug5("FELIPPE: %s Cleaning memory_pool_bitmap",__func__);
+	bit_clear_all(memory_pool_map);
+	bit_or(memory_pool_map,node_map);
+ 
+	debug5("FELIPPE: %s memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+
+
 	/* choose the best nodes for the job */
 	rc = _choose_nodes(job_ptr, node_map, memory_pool_map, node_usage, min_nodes, max_nodes, req_nodes,
 			   cr_node_cnt, cpu_cnt, cr_type, prefer_alloc_nodes);
+	debug5("FELIPPE: %s After _choose_nodes memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 	_log_select_maps("_select_nodes/choose_nodes", node_map, core_map);
 
 	/* if successful, sync up the core_map with the node_map, and
@@ -3353,10 +3361,16 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	 *          within avail_cores
 	 */
 	free_cores = bit_copy(avail_cores);
+	//FELIPPE: initialize the memory_pool_bitmap
+	memory_pool_map = bit_alloc(bit_size(node_bitmap));
+	debug5("FELIPPE: %s before _select_nodes 1 evaluating job %u on %u nodes test_only %d",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap),test_only);
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
 				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only,
 				  part_core_map, prefer_alloc_nodes);
+	debug5("FELIPPE: %s after _select_nodes 1 job %u on %lu memory_nodes test_only %d!",
+			__func__,job_ptr->job_id, bit_set_count(memory_pool_map),test_only);
 	if (cpu_count == NULL) {
 		/* job cannot fit */
 		FREE_NULL_BITMAP(orig_map);
@@ -3372,6 +3386,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		FREE_NULL_BITMAP(orig_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
+		//FELIPPE: on test only must have this free
 		FREE_NULL_BITMAP(memory_pool_map);
 		xfree(cpu_count);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
@@ -3483,6 +3498,8 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	if (job_ptr->details->whole_node == 1)
 		_block_whole_nodes(node_bitmap, avail_cores, free_cores);
 
+	debug5("FELIPPE: %s before _select_nodes 2 evaluating job %u on %u nodes test_only %d",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap),test_only);
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
 				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only,
@@ -3490,6 +3507,8 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 
 	if ((cpu_count) && (job_ptr->best_switch)) {
 		/* job fits! We're done. */
+		debug5("FELIPPE: %s after _select_nodes 2 job %u on %u nodes and memory_nodes %u test_only %d job fits!",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap), bit_set_count(memory_pool_map), test_only);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE) {
 			info("cons_res: cr_job_test: test 1 pass - "
 			     "idle resources found");
@@ -3788,7 +3807,7 @@ alloc_job:
 		/* we were sent here to cleanup and exit */
 		FREE_NULL_BITMAP(avail_cores);
 		FREE_NULL_BITMAP(free_cores);
-		FREE_NULL_BITMAP(memory_pool_map);
+		//FREE_NULL_BITMAP(memory_pool_map);
 		xfree(cpu_count);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
 			info("cons_res: exiting cr_job_test with no allocation");
@@ -3838,12 +3857,16 @@ alloc_job:
 	job_res->node_req         = job_node_req;
 	job_res->cpus             = cpu_count;
 
+	debug5("FELIPPE: %s job resources of job_id %u filling in memory_nodes info",__func__,job_ptr->job_id);
+
 	job_res->memory_pool_bitmap      = bit_copy(memory_pool_map);
+	//job_res->memory_pool_bitmap      = memory_pool_map;
 	job_res->memory_nodes            = bitmap2node_name(memory_pool_map);
 	job_res->memory_nhosts           = bit_set_count(memory_pool_map);
-
-	debug5("FELIPPE: %s job resources of job_id %u memory_nodes %s memory_nhosts %u",
-			__func__,job_ptr->job_id,job_res->memory_nodes,job_res->memory_nhosts);
+	//FELIPPE: free memory_pool_here after copy
+	FREE_NULL_BITMAP(memory_pool_map);
+	debug5("FELIPPE: %s job resources of job_id %u memory_nodes %s memory_nhosts %u bitmap %lu",
+			__func__,job_ptr->job_id,job_res->memory_nodes,job_res->memory_nhosts,bit_set_count(job_res->memory_pool_bitmap));
 
 	job_res->cpus_used        = xmalloc(job_res->nhosts *
 					    sizeof(uint16_t));
@@ -4009,12 +4032,21 @@ alloc_job:
 				continue;
 			job_res->memory_allocated[idx] = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
-			tot_req_mem -= job_res->memory_allocated[idx];
+			
+			if(((long)(tot_req_mem - job_res->memory_allocated[idx])) <= 0){
+				tot_req_mem = 0 ;
+			}
+			else{
+				tot_req_mem -= job_res->memory_allocated[idx];
+			}
+			debug5("FELIPPE: %s job_id %u node %d memory_allocated %lu node_usage %lu",
+					__func__,job_ptr->job_id,i,job_res->memory_allocated[idx],node_usage[i].alloc_memory);
 			idx++;
 		}
 
 		//FELIPPE: Iterating over memory pool
-		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_pool nodes",__func__,job_ptr->job_id);
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_pool nodes memory left %lu",
+				__func__,job_ptr->job_id,tot_req_mem);
 		first = bit_ffs(job_res->memory_pool_bitmap);
 		if (first != -1)
 			last  = bit_fls(job_res->memory_pool_bitmap);
@@ -4027,14 +4059,20 @@ alloc_job:
 			alloc = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
 			job_res->memory_allocated[idx] = alloc;
-			if(alloc - tot_req_mem == 0)
-				job_res->memory_allocated[idx] = select_node_record[i].real_memory;
+			debug5("FELIPPE: %s [memory node %d idx %d memory_free %lu] total_left %lu",
+					__func__,i,idx,alloc,tot_req_mem);
+			if(((long)(tot_req_mem - alloc)) <= 0){
+				job_res->memory_allocated[idx] = tot_req_mem;
+				tot_req_mem = 0;
+			}
+			else
+				tot_req_mem -= alloc;
 			idx++;
 		}
 
 	//FELIPPE: hope it is right, check later
 	} else {	/* --mem=0, allocate job all memory on node */
-		debug5("FELIPPE: %s Filling in job resources of job_id %u else when --mem=0",__func__,job_ptr->job_id);
+		debug5("FELIPPE: %s Filling in job resources for job_id %u when --mem=0",__func__,job_ptr->job_id);
 		uint64_t avail_mem, lowest_mem = 0;
 		first = bit_ffs(job_res->node_bitmap);
 		if (first != -1)
