@@ -3290,7 +3290,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	bitstr_t *memory_pool_map = NULL;
 	bool test_only;
 	uint32_t c, j, k, n, csize, total_cpus;
-	uint64_t save_mem = 0, tot_req_mem = 0;
+	uint64_t save_mem = 0;
 	int32_t build_cnt;
 	job_resources_t *job_res;
 	struct job_details *details_ptr;
@@ -4007,46 +4007,70 @@ alloc_job:
 	//FELIPPE: for pool nodes, it has to allocate its free_mem
 	/* load memory allocated array */
 	save_mem = details_ptr->pn_min_memory;
+	int idx = 0;
+	uint64_t avail = 0, rem = 0;
 
-	if (save_mem & MEM_PER_CPU) /* memory is per-cpu */
-		tot_req_mem = job_ptr->total_cpus * (save_mem &= (~MEM_PER_CPU));
-	else if(save_mem) /* memory is per-node */
-		tot_req_mem = job_res->nhosts * save_mem;	
+	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
+		save_mem = (save_mem &= (~MEM_PER_CPU));
+		
+		first = bit_ffs(job_res->node_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->node_bitmap);
+		else
+			last = first - 1;
 
-	debug5("FELIPPE: %s Finalizing filling in job resources of job_id %u for memory_allocated values"
-			" save_mem %lu tot_req_mem %lu total cpu %u",
-			__func__,job_ptr->job_id,save_mem,tot_req_mem,job_ptr->total_cpus);
-	
-	if ((save_mem & MEM_PER_CPU) || (save_mem)) {
-		int idx = 0;
-		uint64_t alloc;
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per cpu",__func__,job_ptr->job_id,save_mem);
+		for (i = first; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+			
+			avail = select_node_record[i].real_memory -
+											node_usage[i].alloc_memory;
+			job_res->memory_allocated[idx] = save_mem*job_res->cpus[idx];
+			if((job_res->cpus[idx]*save_mem) > avail){
+				job_res->memory_allocated[idx] = avail;
+				rem += (job_res->cpus[idx]*save_mem) - avail;
+			}			
+
+			debug5("FELIPPE: %s job_id %u node %d memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u",
+					__func__,job_ptr->job_id,i,job_res->memory_allocated[idx],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx]);
+			idx++;
+
+		}
+	} 
+	else if(save_mem){ /* memory is per-node */
+
 		first = bit_ffs(job_res->node_bitmap);
 		if (first != -1)
 			last  = bit_fls(job_res->node_bitmap);
 		else
 			last = first - 1;
 		
-		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated values",__func__,job_ptr->job_id);
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per node",__func__,job_ptr->job_id,save_mem);
 		for (i = first; i <= last; i++) {
 			if (!bit_test(job_res->node_bitmap, i))
 				continue;
-			job_res->memory_allocated[idx] = select_node_record[i].real_memory -
+
+			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
-			
-			if(((long)(tot_req_mem - job_res->memory_allocated[idx])) <= 0){
-				tot_req_mem = 0 ;
-			}
-			else{
-				tot_req_mem -= job_res->memory_allocated[idx];
-			}
-			debug5("FELIPPE: %s job_id %u node %d memory_allocated %lu node_usage %lu",
-					__func__,job_ptr->job_id,i,job_res->memory_allocated[idx],node_usage[i].alloc_memory);
+			job_res->memory_allocated[idx] = save_mem;
+			if(save_mem > avail){
+				job_res->memory_allocated[idx] = avail;
+				rem += save_mem - avail;
+			}			
+
+			debug5("FELIPPE: %s job_id %u node %d memory_allocated %lu node_usage %lu avail %lu rem %lu",
+					__func__,job_ptr->job_id,i,job_res->memory_allocated[idx],node_usage[i].alloc_memory,avail,rem);
 			idx++;
 		}
+	}
 
+	//FELIPPE: checking memory left on rem
+	if (save_mem) {
+		uint64_t alloc = 0;
 		//FELIPPE: Iterating over memory pool
 		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_pool nodes memory left %lu",
-				__func__,job_ptr->job_id,tot_req_mem);
+				__func__,job_ptr->job_id,rem);
 		first = bit_ffs(job_res->memory_pool_bitmap);
 		if (first != -1)
 			last  = bit_fls(job_res->memory_pool_bitmap);
@@ -4060,13 +4084,13 @@ alloc_job:
 											node_usage[i].alloc_memory;
 			job_res->memory_allocated[idx] = alloc;
 			debug5("FELIPPE: %s [memory node %d idx %d memory_free %lu] total_left %lu",
-					__func__,i,idx,alloc,tot_req_mem);
-			if(((long)(tot_req_mem - alloc)) <= 0){
-				job_res->memory_allocated[idx] = tot_req_mem;
-				tot_req_mem = 0;
+					__func__,i,idx,alloc,rem);
+			if(((long)(rem - alloc)) <= 0){
+				job_res->memory_allocated[idx] = rem;
+				rem = 0;
 			}
 			else
-				tot_req_mem -= alloc;
+				rem -= alloc;
 			idx++;
 		}
 
