@@ -242,11 +242,11 @@ struct sort_support {
 static int _compare_support(const void *, const void *);
 
 static void bitmap_index(bitstr_t *bitmap, int *i_first, int *i_last){
-	i_first = bit_ffs(bitmap);
-	if (i_first == -1)
-		i_last = -2;
+	*i_first = bit_ffs(bitmap);
+	if (*i_first == -1)
+		*i_last = -2;
 	else
-		i_last = bit_fls(bitmap);
+		*i_last = bit_fls(bitmap);
 }
 
 static void _dump_job_res(struct job_resources *job) {
@@ -893,11 +893,15 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 	}
 
 	//FELIPPE: Doing node usage actualization for memory pool
-	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for memory_pool nodes",__func__,job_ptr->job_id);
-	if(job->memory_pool_bitmap == NULL)
-		debug5("FELIPPE: %s  memory_pool nodes NULL nodes_name %s node %u",__func__,job_ptr->job_id,job->memory_nodes,job->memory_nhosts);
+	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for %u memory_pool nodes",__func__,job_ptr->job_id,job->memory_nhosts);
+	if(job->memory_pool_bitmap == NULL){
+			debug5("FELIPPE: %s memory_pool_bitmap is NULL!!",__func__);
+			return SLURM_ERROR;
+	}
+	
 	bitmap_index(job->memory_pool_bitmap,&i_first,&i_last);
-	n = job->nhosts;
+	n = (int)job->nhosts;
+	debug5("FELIPPE: %s %u memory_pool_nodes %d i_first %d I_last %d index_n",__func__,bit_set_count(job->memory_pool_bitmap),i_first,i_last,n);
 	for (i = i_first; i <= i_last; i++) {
 		if (!bit_test(job->memory_pool_bitmap, i))
 			continue;		
@@ -905,6 +909,8 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 				job->memory_allocated[n];
 		select_node_usage[i].node_state +=
 					job->node_req;
+		debug5("FELIPPE: %s [%d].[n=%d] node %s job_alloced_mem %lu usage %lu",__func__,i,n,select_node_record[i].node_ptr->name,job->memory_allocated[n],select_node_usage[i].alloc_memory);
+
 		n++;
 	}
 	

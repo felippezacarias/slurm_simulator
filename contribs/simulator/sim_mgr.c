@@ -529,14 +529,17 @@ generateJob(job_trace_t* jobd) {
 
      if(jobd->job_id == 1460){
              dmesg.num_tasks     = jobd->tasks;
+			 dmesg.cpus_per_task     = 5;
      } 
      if(jobd->job_id == 1463){
              dmesg.min_nodes     = jobd->tasks/48+1;
+			 //dmesg.shared = 0;
      }
      if(jobd->job_id == 1468){
              dmesg.min_cpus     = jobd->tasks;
+			 dmesg.pn_min_memory = 2000;
      }
-     dmesg.pn_min_memory = 3000;
+     //dmesg.pn_min_memory = 21000;
 
 	 
 	/* Need something for environment--Should make this een more generic! */

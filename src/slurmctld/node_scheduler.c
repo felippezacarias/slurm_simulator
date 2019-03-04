@@ -406,7 +406,7 @@ extern void allocate_nodes(struct job_record *job_ptr)
 	}
 
 	//FELIPPE: Dealing with memory nodes
-	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for memory_pool nodes",__func__,job_ptr->job_id);
+	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for %u memory_pool nodes",__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts);
 	n = job_ptr->job_resrcs->nhosts;
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 		i++, node_ptr++) {
@@ -1643,6 +1643,8 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 
 	shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
 					cr_enabled);
+	debug5("FELIPPE: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
+
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
 
