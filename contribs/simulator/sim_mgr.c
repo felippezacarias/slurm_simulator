@@ -521,25 +521,14 @@ generateJob(job_trace_t* jobd) {
 	dmesg.account       = strdup(jobd->account);
 	dmesg.reservation   = strdup(jobd->reservation);
 	dmesg.dependency    = re_write_dependencies(jobd->dependency);
-	//dmesg.num_tasks     = jobd->tasks;
-	//dmesg.min_cpus      = jobd->tasks * jobd->cpus_per_task; 
-	//dmesg.cpus_per_task = jobd->cpus_per_task;
-	//dmesg.min_nodes     = jobd->tasks;
-	//dmesg.ntasks_per_node = jobd->tasks_per_node;
 
-     if(jobd->job_id == 1460){
-             dmesg.num_tasks     = jobd->tasks;
-			 dmesg.cpus_per_task     = 5;
-     } 
-     if(jobd->job_id == 1463){
-             dmesg.min_nodes     = jobd->tasks/48+1;
-			 //dmesg.shared = 0;
-     }
-     if(jobd->job_id == 1468){
-             dmesg.min_cpus     = jobd->tasks;
-			 dmesg.pn_min_memory = 2000;
-     }
-     //dmesg.pn_min_memory = 21000;
+	if(jobd->shared == 0) dmesg.shared = jobd->shared;
+	if(jobd->tasks_per_node) dmesg.ntasks_per_node = jobd->tasks_per_node;
+	if(jobd->min_nodes) dmesg.min_nodes = jobd->min_nodes;
+	if(jobd->cpus_per_task) dmesg.cpus_per_task = jobd->cpus_per_task;
+	if(jobd->tasks) dmesg.num_tasks = jobd->tasks;
+	if(jobd->min_cpus) dmesg.min_cpus = jobd->min_cpus;
+	if(jobd->pn_mim_memory) dmesg.pn_min_memory = jobd->pn_mim_memory;
 
 	 
 	/* Need something for environment--Should make this een more generic! */
