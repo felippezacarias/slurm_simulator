@@ -369,6 +369,8 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 	job_feature_t *feat_ptr;
 
 	if (feat_cnt) {
+		debug5("FELIPPE: backfill: %s if (feat_cnt)  jobid %u",__func__,job_ptr->job_id);
+
 		/* Ideally schedule the job feature by feature,
 		 * but I don't want to add that complexity here
 		 * right now, so clear the feature counts and try
@@ -417,6 +419,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 	} else if (has_xor) {
 		/* Cache the feature information and test the individual
 		 * features, one at a time */
+		debug5("FELIPPE: backfill: %s else if (has_xor)  jobid %u",__func__,job_ptr->job_id);
 		job_feature_t feature_base;
 		List feature_cache = detail_ptr->feature_list;
 		time_t low_start = 0;
@@ -469,6 +472,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		list_destroy(detail_ptr->feature_list);
 		detail_ptr->feature_list = feature_cache;
 	} else if (detail_ptr->feature_list) {
+		debug5("FELIPPE: backfill: %s else if (detail_ptr->feature_list)  jobid %u",__func__,job_ptr->job_id);
 		if ((job_req_node_filter(job_ptr, *avail_bitmap, true) !=
 		     SLURM_SUCCESS) ||
 		    (bit_set_count(*avail_bitmap) < min_nodes)) {
@@ -487,6 +491,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 	} else {
 		/* Try to schedule the job. First on dedicated nodes
 		 * then on shared nodes (if so configured). */
+		debug5("FELIPPE: backfill: %s else jobid %u",__func__,job_ptr->job_id);
 		uint16_t orig_shared;
 		time_t now = time(NULL);
 		char str[100];
@@ -508,6 +513,10 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 				       &preemptee_job_list,
 				       exc_core_bitmap);
 		FREE_NULL_LIST(preemptee_job_list);
+		debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+		if(*avail_bitmap)
+			debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
+
 
 		job_ptr->details->share_res = orig_shared;
 
@@ -522,6 +531,10 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 					       &preemptee_job_list,
 					       exc_core_bitmap);
 			FREE_NULL_LIST(preemptee_job_list);
+			debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+			if(*avail_bitmap)
+				debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
+
 		} else
 			FREE_NULL_BITMAP(tmp_bitmap);
 	}
@@ -1722,6 +1735,9 @@ next_task:
 		/* Determine minimum and maximum node counts */
 		error_code = get_node_cnts(job_ptr, qos_flags, part_ptr,
 					   &min_nodes, &req_nodes, &max_nodes);
+		debug5("FELIPPE: backfill: %s after get_node_cnts jobid %u min_nodes %u max_nodes %u req_nodes %u error_code %d",
+				__func__,job_ptr->job_id,min_nodes,max_nodes,req_nodes,error_code);
+
 
 		if (error_code == ESLURM_ACCOUNTING_POLICY) {
 			if (debug_flags & DEBUG_FLAG_BACKFILL)
@@ -2032,8 +2048,10 @@ next_task:
 		if (test_fini != 1) {
 			/* Either active_bitmap was NULL or not usable by the
 			 * job. Test using avail_bitmap instead */
+			debug5("FELIPPE: backfill: %s before _try_sched jobid %u avail_nodes %d",__func__,job_ptr->job_id,bit_set_count(avail_bitmap));
 			j = _try_sched(job_ptr, &avail_bitmap, min_nodes,
 				       max_nodes, req_nodes, exc_core_bitmap);
+			debug5("FELIPPE: backfill: %s after _try_sched jobid %u test_fini %d error_code %d",__func__,job_ptr->job_id,test_fini,j);
 			if (test_fini == 0) {
 				job_ptr->details->share_res = save_share_res;
 				job_ptr->details->whole_node = save_whole_node;
@@ -2109,6 +2127,8 @@ next_task:
 			}
 
 			rc = _start_job(job_ptr, resv_bitmap);
+			debug5("FELIPPE: backfill: %s after _start_job jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+
 
 			if (rc == SLURM_SUCCESS) {
 				/* If the following fails because of network
@@ -2497,6 +2517,8 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 	bool is_job_array_head = false;
 	static uint32_t fail_jobid = 0;
 
+	debug5("FELIPPE: backfill: %s jobid %u",__func__,job_ptr->job_id);
+
 	if (job_ptr->details->exc_node_bitmap) {
 		orig_exc_nodes = bit_copy(job_ptr->details->exc_node_bitmap);
 		bit_or(job_ptr->details->exc_node_bitmap, resv_bitmap);
@@ -2505,6 +2527,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 	if (job_ptr->array_recs)
 		is_job_array_head = true;
 	rc = select_nodes(job_ptr, false, NULL, NULL, NULL);
+	debug5("FELIPPE: backfill: %s after select_nodes jobid %u error_code %d",__func__,job_ptr->job_id,rc);
 	if (is_job_array_head && job_ptr->details) {
 		struct job_record *base_job_ptr;
 		base_job_ptr = find_job_record(job_ptr->array_job_id);

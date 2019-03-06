@@ -3635,6 +3635,9 @@ extern void make_node_comp(struct node_record *node_ptr,
 	uint32_t node_flags;
 	time_t now = time(NULL);
 
+	debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u state %u no_share_job_cnt %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state,node_ptr->no_share_job_cnt);
+
 	xassert(node_ptr);
 	if (suspended) {
 		if (node_ptr->sus_job_cnt)
@@ -3668,8 +3671,9 @@ extern void make_node_comp(struct node_record *node_ptr,
 	}
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 
-	//FELIPPE: For memory nodes it will only set idle_bitmap set if it was only 
-	//FELIPPE: running this job
+	debug5("FELIPPE: %s job_id %u node %s comp_job_cnt %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->comp_job_cnt);
+
 	if ((node_ptr->run_job_cnt  == 0) &&
 	    (node_ptr->comp_job_cnt == 0)) {
 		bit_set(idle_node_bitmap, inx);
@@ -3723,9 +3727,10 @@ static void _make_node_down(struct node_record *node_ptr, time_t event_time)
  * make_node_idle - flag specified node as having finished with a job
  * IN node_ptr - pointer to node reporting job completion
  * IN job_ptr - pointer to job that just completed or NULL if not applicable
+ * IN memory_node - boolean if it is applied for memory nodes
  */
 void make_node_idle(struct node_record *node_ptr,
-		    struct job_record *job_ptr)
+		    struct job_record *job_ptr, bool memory_node)
 {
 	int inx = node_ptr - node_record_table_ptr;
 	uint32_t node_flags;
@@ -3733,11 +3738,16 @@ void make_node_idle(struct node_record *node_ptr,
 	bitstr_t *node_bitmap = NULL;
 	char jbuf[JBUFSIZ];
 
+	debug5("FELIPPE: %s job_id %u name %s",__func__,job_ptr->job_id,node_ptr->name);
+
 	if (job_ptr) {
 		if (job_ptr->node_bitmap_cg)
 			node_bitmap = job_ptr->node_bitmap_cg;
 		else
 			node_bitmap = job_ptr->node_bitmap;
+	
+		debug5("FELIPPE: %s job_id %u node_bitmap %d",__func__,job_ptr->job_id,bit_set_count(node_bitmap));
+
 	}
 
 	trace_job(job_ptr, __func__, "enter");
@@ -3748,7 +3758,7 @@ void make_node_idle(struct node_record *node_ptr,
 		last_job_update = now;
 		bit_clear(node_bitmap, inx);
 
-		job_update_tres_cnt(job_ptr, inx);
+		if(!memory_node) job_update_tres_cnt(job_ptr, inx);
 
 		if (job_ptr->node_cnt) {
 			/* Clean up the JOB_COMPLETING flag
@@ -3810,6 +3820,9 @@ void make_node_idle(struct node_record *node_ptr,
 		}
 	}
 
+	debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u comp_job_cnt %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
+
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 	if (IS_NODE_DOWN(node_ptr)) {
 		debug3("%s: %s node %s being left DOWN",
@@ -3843,6 +3856,7 @@ void make_node_idle(struct node_record *node_ptr,
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
 			bit_set(avail_node_bitmap, inx);
 	} else {
+		debug5("FELIPPE: %s job_id %u node %s set to idle",__func__,job_ptr->job_id,node_ptr->name);
 		node_ptr->node_state = NODE_STATE_IDLE | node_flags;
 		if (!IS_NODE_NO_RESPOND(node_ptr) &&
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))

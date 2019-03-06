@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
 {
     int i, first_arrival = 0;
     int rec=1, idx=0, errs=0, share = 0;
-    int nrecs=200; // Number of records has to be entered here each time. This should be done differently.
+    int nrecs=100; // Number of records has to be entered here each time. This should be done differently.
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
     char const* const fileName = argv[1]; /* should check that argc > 1 */
     FILE* file = fopen(fileName, "r"); /* should check the result */
@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
         /* note that fgets don't strip the terminating \n, checking its
            presence would allow to handle lines longer that sizeof(line) */
         rec++;
-        if((rec>=90)&&(rec<=290)){
+        if((rec>=90)&&(rec<=190)){
             printf("%s", line);
             p = strtok(line, " ");
             i=0;
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
             }
             printf("pn_mim_memory: %llu\n", job_arr[idx].pn_mim_memory);
 
-            if((!(rand()%2)) && (share <= 50)){
+            if((!(rand()%2)) && (share <= 25)){
                 share++;
                 job_arr[idx].shared = 0; // exclusive
             }

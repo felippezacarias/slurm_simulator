@@ -338,7 +338,7 @@ extern int basil_inventory(void)
 			node_ptr->node_state &= (~NODE_STATE_NO_RESPOND);
 			node_ptr->node_state |= NODE_STATE_UNKNOWN;
 
-			make_node_idle(node_ptr, NULL);
+			make_node_idle(node_ptr, NULL, false);
 			if (!IS_NODE_DRAIN(node_ptr) &&
 			    !IS_NODE_FAIL(node_ptr)) {
 				xfree(node_ptr->reason);

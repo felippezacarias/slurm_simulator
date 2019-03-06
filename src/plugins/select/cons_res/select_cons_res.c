@@ -1647,7 +1647,7 @@ top:	orig_map = bit_copy(save_bitmap);
 			 select_node_cnt, select_part_record,
 			 select_node_usage, exc_core_bitmap, false, false,
 			 preempt_mode);
-
+	debug5("FELIPPE: %s after cr_job_test jobid %u error_code %d",__func__,job_ptr->job_id,rc);
 	if ((rc != SLURM_SUCCESS) && preemptee_candidates && preempt_by_qos) {
 		/* Determine QOS preempt mode of first job */
 		job_iterator = list_iterator_create(preemptee_candidates);

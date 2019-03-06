@@ -95,7 +95,7 @@ struct node_record *find_node_record (char *name) { return NULL; }
 uint32_t gres_plugin_get_job_value_by_type(List job_gres_list,
 			char *gres_name_type) { return 0; }
 void make_node_idle(struct node_record *node_ptr,
-			struct job_record *job_ptr) { ; }
+			struct job_record *job_ptr, bool memory_node) { ; }
 int select_char2coord(char coord) { return 0; }
 void set_node_down_ptr (struct node_record *node_ptr, char *reason) { ; }
 char *uid_to_string (uid_t uid) { return NULL; }
