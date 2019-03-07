@@ -56,6 +56,7 @@ int main(int argc, char* argv[])
     FILE* file = fopen(fileName, "r"); /* should check the result */
     char line[256];
     char *p;
+    int submit = 98;
 
 
     srand(time(NULL));   // Initialization,
@@ -78,11 +79,13 @@ int main(int argc, char* argv[])
             while(p!=NULL){
                 if(i==0) {
                     job_arr[idx].job_id = atoi(p);
-                    printf("rec %d JOBID [%s]\n", rec, p); 
+                    printf("[%d] rec %d JOBID [%s]\n", idx+2, rec, p); 
                 }   
                 if(i==1) {
-                    if(first_arrival == 0)  first_arrival = atoi(p);
-                    job_arr[idx].submit = 100 + atoi(p) - first_arrival;
+                    //if(first_arrival == 0)  first_arrival = atoi(p);
+                    //job_arr[idx].submit = 100 + atoi(p) - first_arrival;
+                    submit += 2;
+                    job_arr[idx].submit = submit;
                     printf("Submit time: %s -> %ld\n", p,job_arr[idx].submit);
                 }  // why submit cannot start from 0? 
                 if(i==3) {
@@ -105,7 +108,7 @@ int main(int argc, char* argv[])
             }
             
             //Default not to set
-            //job_arr[idx].pn_mim_memory = 0;
+            job_arr[idx].pn_mim_memory = 0;
             job_arr[idx].shared = -1;
             job_arr[idx].tasks_per_node = 0;
             job_arr[idx].min_nodes = 0;

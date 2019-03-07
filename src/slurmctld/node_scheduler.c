@@ -1365,6 +1365,7 @@ _get_req_features(struct node_set *node_set_ptr, int node_set_size,
 				preemptee_candidates, preemptee_job_list,
 				has_xand, exc_core_bitmap, resv_overlap);
 	}
+	debug5("FELIPPE: %s after _pick_best_nodes jobid %u error_code  %d",__func__,job_ptr->job_id,error_code);
 #if 0
 {
 	char *tmp_str = bitmap2node_name(*select_bitmap);
@@ -1894,6 +1895,9 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 						      preemptee_cand,
 						      preemptee_job_list,
 						      exc_core_bitmap);
+			
+			debug5("FELIPPE: %s after select_g_job_test 1 jobid %u error_code  %d",__func__,job_ptr->job_id,pick_code);
+
 			if (job_ptr->details->pn_min_memory) {
 				if (job_ptr->details->pn_min_memory <
 				    smallest_min_mem)
@@ -1903,6 +1907,7 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 					job_ptr->details->pn_min_memory =
 						smallest_min_mem;
 			}
+			
 
 #if 0
 {
@@ -1951,6 +1956,9 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 						      preemptee_job_list,
 						      exc_core_bitmap);
 
+			debug5("FELIPPE: %s after select_g_job_test 2 jobid %u error_code  %d",__func__,job_ptr->job_id,pick_code);
+
+
 			if (job_ptr->details->pn_min_memory) {
 				if (job_ptr->details->pn_min_memory <
 				    smallest_min_mem)
@@ -1995,6 +2003,9 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 						preemptee_candidates, NULL,
 						exc_core_bitmap);
 
+				debug5("FELIPPE: %s after select_g_job_test 3 obid %u error_code  %d",__func__,job_ptr->job_id,pick_code);
+
+
 				if (job_ptr->details->pn_min_memory) {
 					if (job_ptr->details->pn_min_memory <
 					    smallest_min_mem)
@@ -2027,6 +2038,9 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 						SELECT_MODE_TEST_ONLY,
 						preemptee_candidates, NULL,
 						exc_core_bitmap);
+				
+				debug5("FELIPPE: %s after select_g_job_test 4 jobid %u error_code  %d",__func__,job_ptr->job_id,pick_code);
+
 
 				if (job_ptr->details->pn_min_memory) {
 					if (job_ptr->details->pn_min_memory <
