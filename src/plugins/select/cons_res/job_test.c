@@ -798,18 +798,23 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 	List gres_list;
 	int i, i_first, i_last;
 
-	if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
-		uint16_t min_cpus;
-		min_mem = job_ptr->details->pn_min_memory & (~MEM_PER_CPU);
-		min_cpus = MAX(job_ptr->details->ntasks_per_node,
-			       job_ptr->details->pn_min_cpus);
-		min_cpus = MAX(min_cpus, job_ptr->details->cpus_per_task);
-		if (min_cpus > 0)
-			min_mem *= min_cpus;
-		debug5("FELIPPE: %s job_id %u min_cpus %u", __func__,job_ptr->job_id,min_cpus);
-	} else {
-		min_mem = job_ptr->details->pn_min_memory;
-	}
+	min_mem = 1;
+	//FELIPPE: We don't need check mim memory, we just need check if
+	//FELIPPE: the node have or does not have free memory.
+	//FELIPPE: later we can improve it as the node can have free cores
+	//FELIPPE: that can be used
+	//if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
+	//	uint16_t min_cpus;
+	//	min_mem = job_ptr->details->pn_min_memory & (~MEM_PER_CPU);
+	//	min_cpus = MAX(job_ptr->details->ntasks_per_node,
+	//		       job_ptr->details->pn_min_cpus);
+	//	min_cpus = MAX(min_cpus, job_ptr->details->cpus_per_task);
+	//	if (min_cpus > 0)
+	//		min_mem *= min_cpus;
+	//	debug5("FELIPPE: %s job_id %u min_cpus %u", __func__,job_ptr->job_id,min_cpus);
+	//} else {
+	//	min_mem = job_ptr->details->pn_min_memory;
+	//}
 	debug5("FELIPPE: %s job_id %u min_mem %lu", __func__,job_ptr->job_id,min_mem);
 	i_first = bit_ffs(node_bitmap);
 	if (i_first == -1)
@@ -2923,18 +2928,17 @@ static int _eval_memory(struct job_record *job_ptr,
 		uint16_t min_cpus;
 		//FELIPPE: Covering if the user specify tasks or other thing.
 		//FELIPPE: if user specify only min_nodes and the memory is per cpu,
-		//FELIPPE: This min_cpu will not represent the true value. FIXME later.
+		//FELIPPE: I'm using the number of nodes in this case
+		debug5("FELIPPE: %s for job_id %u tasks %u tasks_per_node %u min_cpu %u cpu_per_task %u",
+				__func__,job_ptr->job_id,job_ptr->details->num_tasks,job_ptr->details->ntasks_per_node,job_ptr->details->min_cpus,job_ptr->details->cpus_per_task);
 		if(job_ptr->details->num_tasks > 1)
 			min_cpus = job_ptr->details->num_tasks;
-		else{
-			min_cpus = MAX(job_ptr->details->ntasks_per_node,
-					job_ptr->details->min_cpus);
-			min_cpus = MAX(min_cpus, job_ptr->details->cpus_per_task);
-		}
-		if (min_cpus > 0)
-			tot_req_mem = (min_cpus * req_mem);
+		else
+			min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+
+		tot_req_mem = (min_cpus * req_mem);
 		debug5("FELIPPE: %s for job_id %u percpu %lu tot_req_mem %lu using min_cpus %u node_name %s",
-				__func__,job_ptr->job_id,req_mem,tot_req_mem,min_cpus,node_name);
+			__func__,job_ptr->job_id,req_mem,tot_req_mem,min_cpus,node_name);
 	}
 	else{
 		/* memory is per node */
@@ -3218,9 +3222,11 @@ static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 	bit_and_not(memory_pool_map,node_map);
 	debug5("FELIPPE: %s After bit_and_not memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 	//FELIPPE: catch the error
-	rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
-	debug5("FELIPPE: %s error_code %d after _eval_memory",__func__,rc);
-	debug5("FELIPPE: %s After _eval_memory memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+	if(rc == SLURM_SUCCESS){
+		rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
+		debug5("FELIPPE: %s error_code %d after _eval_memory",__func__,rc);
+		debug5("FELIPPE: %s After _eval_memory memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+	}
 
 	/* if successful, sync up the core_map with the node_map, and
 	 * create a cpus array */
@@ -4033,20 +4039,20 @@ alloc_job:
 	save_mem = details_ptr->pn_min_memory;
 	int idx = 0;
 	uint64_t avail = 0, rem = 0, min_cpus;
+	uint32_t nodes;
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
 		save_mem = (save_mem &= (~MEM_PER_CPU));
+		nodes = bit_set_count(job_res->node_bitmap);
+
 
 		//FELIPPE: same calculation on _eval_memory()
 		if(job_ptr->details->num_tasks > 1)
 			min_cpus = job_ptr->details->num_tasks;
-		else{
-			min_cpus = MAX(job_ptr->details->ntasks_per_node,
-					job_ptr->details->min_cpus);
-			min_cpus = MAX(min_cpus, job_ptr->details->cpus_per_task);
-		}
-		if (min_cpus > 0)
-			rem = (min_cpus * save_mem);
+		else
+			min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+
+		rem = (min_cpus * save_mem);
 		
 		first = bit_ffs(job_res->node_bitmap);
 		if (first != -1)

@@ -402,7 +402,7 @@ extern void allocate_nodes(struct job_record *job_ptr)
 			if (IS_NODE_POWER_SAVE(node_ptr))
 				has_cloud_power_save = true;
 		}
-		make_node_alloc(node_ptr, job_ptr);
+		make_node_alloc(node_ptr, job_ptr, 0, false);
 	}
 
 	//FELIPPE: Dealing with memory nodes
@@ -419,7 +419,7 @@ extern void allocate_nodes(struct job_record *job_ptr)
 			if (IS_NODE_POWER_SAVE(node_ptr))
 				has_cloud_power_save = true;
 		}
-		make_node_memory_alloc(node_ptr, job_ptr, n);
+		make_node_alloc(node_ptr, job_ptr, n, true);
 		n++;
 	}
 
