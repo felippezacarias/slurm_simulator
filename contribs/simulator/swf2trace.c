@@ -119,10 +119,13 @@ int main(int argc, char* argv[])
             switch (rand()%3)
             {
                 case 1: /*per cpu*/
-                    job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000 | MEM_PER_CPU;
+                    //job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000 | MEM_PER_CPU;
+                    job_arr[idx].pn_mim_memory = (int)(((float)rand()/(float)(RAND_MAX)) * 10000) | MEM_PER_CPU;
+                    
                     break;                
                 case 2: //per node
-                    job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000;
+                    //job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000;
+                    job_arr[idx].pn_mim_memory = (int)(((float)rand()/(float)(RAND_MAX)) * 10000);
                     break;
                 default:
                     break;
