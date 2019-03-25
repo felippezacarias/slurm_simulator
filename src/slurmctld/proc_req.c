@@ -130,6 +130,7 @@ static int          _route_msg_to_origin(slurm_msg_t *msg, char *job_id_str,
 					 uint32_t job_id, uid_t uid);
 static void         _throttle_fini(int *active_rpc_cnt);
 static void         _throttle_start(int *active_rpc_cnt);
+static void 		_dump_node_mem_status();
 
 inline static void  _slurm_rpc_accounting_first_reg(slurm_msg_t *msg);
 inline static void  _slurm_rpc_accounting_register_ctld(slurm_msg_t *msg);
@@ -3654,6 +3655,8 @@ static void _slurm_rpc_shutdown_controller(slurm_msg_t * msg)
 		options = shutdown_msg->options;
 	}
 
+	_dump_node_mem_status();
+
 	/* do RPC call */
 	if (error_code)
 		;
@@ -3709,6 +3712,37 @@ static void _slurm_rpc_shutdown_controller(slurm_msg_t * msg)
 	if ((error_code == SLURM_SUCCESS) && (options == 1) &&
 	    (slurmctld_config.thread_id_sig))
 		pthread_kill(slurmctld_config.thread_id_sig, SIGABRT);
+}
+
+static void _dump_node_mem_status()
+{
+	debug5("FELIPPE: %s Dumping node final info",__func__);
+	debug5("FELIPPE: Node_name\tmem_tot\tmem_alloc\tcore_tot\tcpu_alloc");
+	int i;
+	struct node_record *node_ptr;
+	uint16_t cpus_alloc;
+	uint64_t mem_alloc;
+	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
+		i++, node_ptr++) {
+
+		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
+						SELECT_NODEDATA_MEM_ALLOC,
+						NODE_STATE_ALLOCATED, &mem_alloc);
+		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
+						SELECT_NODEDATA_SUBCNT,
+						NODE_STATE_ALLOCATED, &cpus_alloc);
+		debug5("FELIPPE: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,node_ptr->cores,cpus_alloc);
+				
+	}
+
+	debug5("FELIPPE: %s Dumping bitmaps final info",__func__);
+	debug5("FELIPPE: %s avail_node_bitmap %u",__func__,bit_set_count(avail_node_bitmap));
+	debug5("FELIPPE: %s booting_node_bitmap %u",__func__,bit_set_count(booting_node_bitmap));
+	debug5("FELIPPE: %s cg_node_bitmap %u",__func__,bit_set_count(cg_node_bitmap));
+	debug5("FELIPPE: %s idle_node_bitmap %u",__func__,bit_set_count(idle_node_bitmap));
+	debug5("FELIPPE: %s power_node_bitmap %u",__func__,bit_set_count(power_node_bitmap));
+	debug5("FELIPPE: %s share_node_bitmap %u",__func__,bit_set_count(share_node_bitmap));
+	debug5("FELIPPE: %s up_node_bitmap %u",__func__,bit_set_count(up_node_bitmap));
 }
 
 /* _slurm_rpc_shutdown_controller_immediate - process RPC to shutdown

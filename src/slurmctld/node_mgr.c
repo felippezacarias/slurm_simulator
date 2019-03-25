@@ -3555,6 +3555,8 @@ extern void make_node_alloc(struct node_record *node_ptr,
 	(node_ptr->run_job_cnt)++;
 	if(memory_node){
 		//FELIPPE: FIXME it fail if it allocates only part of the memory, but free_mem = 0
+		//FELIPPE: USE FUNCTION select_g_select_nodeinfo_get. It will call select_p_select_nodeinfo_get
+		//FELIPPE: THAT WILL RETURN node mem_allocated(for all jobs in)
 		if(job_ptr->job_resrcs->memory_allocated[node_idx] == node_ptr->real_memory)
 			bit_clear(idle_node_bitmap, inx);
 	}
