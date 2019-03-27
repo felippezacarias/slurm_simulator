@@ -483,6 +483,16 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->requid = -1; /* force to -1 for sacct to know this
 			       * hasn't been set yet  */
 	job_ptr->billable_tres = (double)NO_VAL;
+
+	//FELIPPE: Initializing speedup calculator values
+	job_ptr->maxrss = 0;
+    job_ptr->memreq = 0;
+    job_ptr->speed = 0;
+    job_ptr->time_elapsed = 0;
+    job_ptr->time_left = 0;
+	job_ptr->time_delta = 0;
+	job_ptr->job_share = list_create(NULL);
+
 	(void) list_append(job_list, job_ptr);
 
 	return job_ptr;
@@ -5651,9 +5661,12 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 			job_ptr->exit_code = job_return_code;
 		return ESLURM_ALREADY_DONE;
 	}
-
+	
 	if (IS_JOB_COMPLETING(job_ptr))
 		return SLURM_SUCCESS;	/* avoid replay */
+
+	//FELIPPE: executing check function after complete the job
+	_check_job_status(job_ptr, true);
 
 	if ((job_return_code & 0xff) == SIG_OOM) {
 		info("%s: %s OOM failure",  __func__,
@@ -17991,3 +18004,129 @@ extern double calc_job_billable_tres(struct job_record *job_ptr,
 	return job_ptr->billable_tres;
 }
 
+
+//Nishtala: scheduling function
+extern int _check_job_status(struct job_record *job_ptr, bool completing) {
+    info("FELIPPE: Entered %s\n",__func__);
+    /*
+     * Need to call this function periodically when the job starts and ends.
+     * job_ptr -> current job
+     * TODO: Change time_delta, time_elapsed, time_left to time_t
+     */
+    int rc = SLURM_SUCCESS;
+			
+#ifdef SLURM_SIMULATOR
+    ListIterator job_iterator, scan_iterator;
+    struct job_record *job_scan_ptr;
+    job_iterator = list_iterator_create(job_list);
+    int count_job_ptr=0; int count_job_scan_ptr=0;
+	double time_delta = 0.0, scale;
+	uint32_t jobid,scan_jobid;
+	time_t now = time(NULL);
+    /*TODO
+    1. "How much" of the app has finished?
+     x_A := x_A + <time delta> * v
+    2. What is the current "speed"?
+     v := <new speed>
+    3. What is the time left?
+     <time left> = (1 - x_A) / v. 
+    */
+    //TODO: Shall we detect application phases?
+    //https://hal.archives-ouvertes.fr/hal-01123831/document
+    /*
+     * job_scan_ptr->job_share will impact job_scan_ptr->speed, time_elapsed and time_left
+     * job_ptr->job_share will impact job_ptr->speed, time_elapsed and time_left
+     */
+	bool overlap = false;
+	if(!completing){
+		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+			if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
+				if((bit_overlap(job_ptr->node_bitmap, job_scan_ptr->node_bitmap) > 0) &&
+					(job_ptr->job_id != job_scan_ptr->job_id)){
+					overlap = true;
+					list_append(job_ptr->job_share, job_scan_ptr->job_id);
+					list_append(job_scan_ptr->job_share, job_ptr->job_id);
+				}
+
+			}
+		}
+	}
+	else
+	{
+		count_job_ptr = list_count(job_ptr->job_share);
+		if(count_job_ptr) overlap = true;
+		//list_destroy(job_ptr->job_share);
+		//job_ptr->job_share = NULL;
+	}
+	list_iterator_destroy(job_iterator);
+
+
+	//IF it is 0, then it is first time
+	if(job_ptr->time_delta) time_delta = difftime(now,job_ptr->time_delta);//time_delta = difftime(now,job_ptr->time_delta);
+	
+	if (!overlap) {
+		debug5("FELIPPE: %s. Job_id=%u in isolation=%d completing=%d\n", __func__,job_ptr->job_id, overlap,completing);
+		job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
+		job_ptr->speed        = 1.0/job_ptr->time_limit;
+		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
+		debug5("FELIPPE %s. Job_id=%u in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e\n", __func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta);
+	} else {
+		count_job_ptr = list_count(job_ptr->job_share);
+
+		debug5("FELIPPE: %s. job_id=%u sharing_node=%d count=%d completing=%d\n", __func__,job_ptr->job_id, overlap, count_job_ptr,completing);
+
+		
+		job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
+		//FELIPPE: (1/count_job_ptr) is fixed by now, however the slowdown factor must be calculated somehow
+		//job_ptr->speed        = (1.0/job_ptr->time_limit)*(1/(count_job_ptr+1)); //giving 0 as result, why?
+		scale = (1.0/(count_job_ptr+1.0));
+		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
+		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
+		debug5("FELIPPE: %s. CURRENT Job_id=%u not in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e time_limit=%u scale=%e\n",  __func__, job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale);
+
+	    job_iterator = list_iterator_create(job_ptr->job_share);
+		while ((jobid = (uint32_t) list_next(job_iterator))) {
+			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
+			debug5("FELIPPE: %s. updating Job_id=%u not in isolation\n", __func__,jobid);
+			job_scan_ptr = find_job_record(jobid);
+			time_delta = difftime(now,job_scan_ptr->time_delta);
+			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
+			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
+			scale = (1.0/(count_job_scan_ptr+1.0));
+			if(completing && ( count_job_scan_ptr == 1))
+				job_scan_ptr->speed        = (1.0/job_scan_ptr->time_limit);
+			else
+				job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale)); //(1/(count_job_scan_ptr+1)); //why gives 0?
+			
+			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
+			job_scan_ptr->time_delta = now;
+			scan_iterator = list_iterator_create(job_scan_ptr->job_share);
+			if(completing)
+				while((scan_jobid = (uint32_t) list_next(scan_iterator))){
+					if(scan_jobid == job_ptr->job_id) list_remove(scan_iterator);
+				}
+			list_iterator_destroy(scan_iterator);
+			debug5("FELIPPE: %s. Job_id=%u not in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e completing=%d list_count=%d time_limit=%u scale=%e\n", __func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed, job_scan_ptr->time_left,time_delta,completing,count_job_scan_ptr,job_scan_ptr->time_limit,scale);
+		}
+		list_iterator_destroy(job_iterator);
+	}
+	if(completing){
+		list_destroy(job_ptr->job_share);
+		job_ptr->job_share = NULL;
+	}
+	job_ptr->time_delta   = now; 
+
+    //Check if the job id's from job_dmesg and job_ptr are same.
+    /*assert (job_dmesg->job_id == job_ptr->job_id);
+    //If yes, copy from job_dmesg to job_ptr
+    job_ptr->maxrss = job_dmesg->maxrss;
+    job_ptr->memreq = job_dmesg->memreq;
+    //Can be controlled similar to src/plugins/select/linear/select_linear.c:572:
+    job_memory_allocated = job_ptr->job_resrcs->memory_allocated;
+    job_memory_used      = job_ptr->job_resrcs->memory_used;
+    printf("[DEBUG] maxrss=%d \t memreq=%d \t memory_allocated=%d \t memory_used=%d\n", job_ptr->maxrss, job_ptr->memreq, job_memory_allocated, job_memory_used);*/
+    
+#endif
+    return rc;
+
+}
