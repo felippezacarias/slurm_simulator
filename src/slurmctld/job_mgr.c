@@ -266,6 +266,7 @@ static int  _write_data_array_to_file(char *file_name, char **data,
 				      uint32_t size);
 static void _xmit_new_end_time(struct job_record *job_ptr);
 static int _update_sim_job_status(struct job_record *job_ptr);
+double _compute_scale(int job_cnt, bool completing);
 
 
 /*
@@ -18036,6 +18037,17 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	return rc;
 	
 }
+
+double _compute_scale(int job_cnt, bool completing){
+	double scale = 1.0;
+
+	//FELIPPE: If it is completing the new speed (in this case) must be count_job-1 because of the completing job
+	if(completing) scale = (1.0/(job_cnt));
+	//FELIPPE: If it is not completing then the speed should account for this job and the others in contention
+	else scale = (1.0/(job_cnt+1.0));
+
+	return scale;
+}
 #endif
 
 //Nishtala: scheduling function
@@ -18109,26 +18121,28 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 		
 		job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
 		//FELIPPE: (1/count_job_ptr) is fixed by now, however the slowdown factor must be calculated somehow
-		scale = (1.0/(count_job_ptr+1.0));
+		scale = _compute_scale(count_job_ptr, completing);
+
 		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
 		debug5("FELIPPE: %s. CURRENT job_id=%u not in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e time_limit=%u scale=%e\n",  __func__, job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale);
 
+		//FELIPPE: It is not completing because the slurmd daemon has the finish time iqual time_limit, however as the job will run in contention
+		//FELIPPE: we need to update the expect time to finish with the new time_left
 		if(!completing) _update_sim_job_status(job_ptr);
 
 	    job_iterator = list_iterator_create(job_ptr->job_share);
 		while ((jobid = (uint32_t) list_next(job_iterator))) {
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
-			debug5("FELIPPE: %s. job_id=%u updating Job_id=%u [not in isolation]\n", __func__,job_ptr->job_id,jobid);
+			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [not in isolation]\n", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
 			time_delta = difftime(now,job_scan_ptr->time_delta);
 			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			scale = (1.0/(count_job_scan_ptr+1.0));
-			if(completing && ( count_job_scan_ptr == 1))
-				job_scan_ptr->speed        = (1.0/job_scan_ptr->time_limit);
-			else
-				job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale));
+
+			scale = _compute_scale(count_job_scan_ptr, completing);
+
+			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale));
 			
 			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
 			job_scan_ptr->time_delta = now;
@@ -18140,7 +18154,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 			list_iterator_destroy(scan_iterator);
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s. job_id=%u not in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e completing=%d list_count=%d time_limit=%u scale=%e\n", __func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed, job_scan_ptr->time_left,time_delta,completing,count_job_scan_ptr,job_scan_ptr->time_limit,scale);
+			debug5("FELIPPE: %s. job_id=%u not in isolation being updated, elapsed=%e, speed=%e, time_left=%e time_delta=%e completing=%d list_count=%d time_limit=%u scale=%e\n", __func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed, job_scan_ptr->time_left,time_delta,completing,count_job_scan_ptr,job_scan_ptr->time_limit,scale);
 		}
 		list_iterator_destroy(job_iterator);
 	}
