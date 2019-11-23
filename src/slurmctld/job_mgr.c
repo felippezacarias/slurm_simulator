@@ -18027,12 +18027,12 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_set_addr(&req_msg.address, (uint16_t)slurm_get_slurmd_port(),
 						this_addr);
 	
-	if (slurm_send_recv_node_msg(&req_msg, &resp_msg, 500000) < 0) {
-		printf("check_events_trace: error in slurm_send_recv_node_msg\n");
-		return SLURM_ERROR;
-	}else{
-		debug5("FELIPPE: %s. job_id=%u sending update rpc success.\n", __func__,job_ptr->job_id);
-	}
+	//if (slurm_send_recv_node_msg(&req_msg, &resp_msg, 500000) < 0) {
+	//	printf("check_events_trace: error in slurm_send_recv_node_msg\n");
+	//	return SLURM_ERROR;
+	//}else{
+	//	debug5("FELIPPE: %s. job_id=%u sending update rpc success.\n", __func__,job_ptr->job_id);
+	//}
 
 	return rc;
 	

@@ -3421,7 +3421,7 @@ static int _build_node_list(struct job_record *job_ptr,
 	node_set_ptr = (struct node_set *)
 			xmalloc(sizeof(struct node_set) * node_set_len);
 
-	//FELIPPE: first check if the required memory fits using all config
+	//FELIPPE: first check if the required memory fits using all configs (different node sets) within the partition
 	config_iterator = list_iterator_create(config_list);
 	debug5("FELIPPE: %s checking total partition memory avialable",__func__);
 	while ((config_ptr = (struct config_record *)
@@ -3429,6 +3429,7 @@ static int _build_node_list(struct job_record *job_ptr,
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
 			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
 			part_total_mem_avail += (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
+			debug5("FELIPPE: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",__func__,config_ptr->nodes,config_ptr->real_memory,part_total_mem_avail);
 			FREE_NULL_BITMAP(config_nodes_part_bitmap);
 	}
 	list_iterator_destroy(config_iterator);
@@ -3445,12 +3446,14 @@ static int _build_node_list(struct job_record *job_ptr,
 					     config_ptr->cpus);
 		if (detail_ptr->pn_min_cpus <= adj_cpus)
 			cpus_ok = true;
-		//FELIPPE: check if meemory per cpu or mim mem node is less than configuration mem
+		//FELIPPE: check if memory per cpu or mim mem node is less than configuration mem
+		//FELIPPE: It is done as the default procedure, before checking the whole partition memory
 		if ((detail_ptr->pn_min_memory & (~MEM_PER_CPU)) <=
 		    config_ptr->real_memory){
 			mem_ok = true;
 		}else{
 			//FELIPPE: else check if all nodes on config or partition memory  fits the requested mem
+			//FELIPPE: This is not the real total memory, here i'm checking if the requested meomry is feasible
 			requested_mem = (detail_ptr->pn_min_memory & (~MEM_PER_CPU));
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
 			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);

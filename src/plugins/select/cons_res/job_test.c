@@ -798,6 +798,8 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 	List gres_list;
 	int i, i_first, i_last;
 
+	//FELIPPE: My min mem is 1, so nodes with 0 free mem are cleared, but they can have free cores
+	//FELIPPE: that we can improve later on. 
 	min_mem = 1;
 	//FELIPPE: We don't need check mim memory, we just need check if
 	//FELIPPE: the node have or does not have free memory.
@@ -3091,7 +3093,7 @@ static int _choose_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 
 	/* This nodeset didn't work. To avoid a possible knapsack problem,
 	 * incrementally remove nodes with low cpu counts and retry */
-	debug5("FELIPPE: %s Executing non covered section",__func__);
+	//debug5("FELIPPE: %s Executing non covered section",__func__);
 	for (i = 0; i < cr_node_cnt; i++) {
 		most_cpus = MAX(most_cpus, cpu_cnt[i]);
 	}
@@ -4213,7 +4215,7 @@ alloc_job:
 		}
 
 		if(rem){
-			debug5("FELIPPE: %s ERROR - job_id %u memory left %lu. It SHOULD BE 0!!!",
+			debug5("FELIPPE: %s ERROR - something wen wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 					__func__,job_ptr->job_id,rem);
 		}
 
