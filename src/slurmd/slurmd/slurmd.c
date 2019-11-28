@@ -571,7 +571,7 @@ _registration_engine(void *arg)
         //signal_sim_mgr();
 	notify_sim_mgr(); /*** ANA: Replacing signals for slurmd registration */
 #endif
-	pthread_exit(NULL);
+	//pthread_exit(NULL);
 	return NULL;
 }
 
@@ -760,7 +760,7 @@ _simulator_helper(void *arg)
 			_send_sim_helper_cycle_msg(0);
 		}
 
-		perform_global_sync();
+		perform_global_sync_end();
 
 	}
 	info("SIM: Simulator Helper finishing...");

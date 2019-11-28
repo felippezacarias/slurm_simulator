@@ -663,7 +663,7 @@ static void *_wdog(void *args)
 
 	slurm_mutex_unlock(&agent_ptr->thread_mutex);
 
-	pthread_exit(NULL);
+	//pthread_exit(NULL);
 
 	return (void *) NULL;
 }

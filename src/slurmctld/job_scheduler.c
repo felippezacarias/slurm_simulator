@@ -3959,7 +3959,7 @@ fini:	lock_slurmctld(job_write_lock);
 	 */
 	track_script_remove(pthread_self());
 
-	pthread_exit(NULL);
+	//pthread_exit(NULL);
 
 	return NULL;
 }

@@ -1388,7 +1388,7 @@ cleanup:
 	//}
 	//xfree(arg);
         //server_thread_decr();
-	pthread_exit(NULL); /*This line does not exist in v17 only in simulator-v14*/
+	//pthread_exit(NULL); /*This line does not exist in v17 only in simulator-v14*/
 	return return_code;
 }
 
