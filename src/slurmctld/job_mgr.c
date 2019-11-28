@@ -5090,6 +5090,7 @@ extern int job_allocate(job_desc_msg_t * job_specs, int immediate,
 	no_alloc = no_alloc || (bb_g_job_test_stage_in(job_ptr, no_alloc) != 1);
 
 	error_code = _select_nodes_parts(job_ptr, no_alloc, NULL, err_msg);
+	debug5("FELIPPE: %s after _select_nodes_parts erro_code %d",__func__,error_code);
 	if (!test_only) {
 		last_job_update = now;
 	}
@@ -11026,6 +11027,9 @@ void reset_job_bitmaps(void)
 			      job_ptr->nodes_completing, job_ptr);
 			job_fail = true;
 		}
+		/* FVZ:Cleaning up memory pool bitmap */
+		if(job_ptr->job_resrcs)
+			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 		FREE_NULL_BITMAP(job_ptr->node_bitmap);
 		if (job_ptr->nodes &&
 		    node_name2bitmap(job_ptr->nodes, false,
@@ -15250,6 +15254,9 @@ void batch_requeue_fini(struct job_record  *job_ptr)
 	xfree(job_ptr->nodes_completing);
 	FREE_NULL_BITMAP(job_ptr->node_bitmap);
 	FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
+	/* FVZ:Cleaning up memory pool bitmap */
+	if(job_ptr->job_resrcs)
+		FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 	if (job_ptr->details) {
 		time_t now = time(NULL);
 		/* The time stamp on the new batch launch credential must be
@@ -17898,6 +17905,10 @@ extern void build_cg_bitmap(struct job_record *job_ptr)
 	FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
 	if (job_ptr->node_bitmap) {
 		job_ptr->node_bitmap_cg = bit_copy(job_ptr->node_bitmap);
+		/* FVZ: also add memory pool bitmap to completing bitmap */
+		if(job_ptr->job_resrcs->memory_pool_bitmap &&
+			bit_set_count(job_ptr->job_resrcs->memory_pool_bitmap) > 0) 
+				bit_or(job_ptr->node_bitmap_cg, job_ptr->job_resrcs->memory_pool_bitmap);
 		if (bit_set_count(job_ptr->node_bitmap_cg) == 0)
 			job_ptr->job_state &= (~JOB_COMPLETING);
 	} else {

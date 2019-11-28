@@ -1917,6 +1917,13 @@ extern void log_feature_lists(void);
 extern void make_node_alloc(struct node_record *node_ptr,
 			    struct job_record *job_ptr);
 
+/* make_node_memory_alloc - flag specified node memory as allocated to a job
+ * IN node_ptr - pointer to node being allocated
+ * IN job_ptr  - pointer to job that is starting
+ */
+extern void make_node_memory_alloc(struct node_record *node_ptr,
+			    struct job_record *job_ptr, int node_idx);
+
 /* make_node_comp - flag specified node as completing a job
  * IN node_ptr - pointer to node marked for completion of job
  * IN job_ptr  - pointer to job that is completing

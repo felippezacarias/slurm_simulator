@@ -583,7 +583,7 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
 	char    *resv_id = NULL;
 	bool     replied = false;
 	slurm_addr_t *cli = &msg->orig_addr;
-	hostlist_t hl;
+	hostlist_t hl, hlmem;
 	char *node_name;
 
 	info("SIM: Inside of the simulator_rpc_batch_job for %d\n", req->job_id);
@@ -593,6 +593,11 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
 	}
 	info("SIM: Hostlist printed\n");
 
+	hlmem = hostlist_create(req->memory_nodes);
+	while ((node_name = hostlist_shift(hlmem))) {
+        info("SIM: memory nodes nodelist %s\n", node_name);
+    }
+	hostlist_destroy(hlmem);
 
 	if (slurm_send_rc_msg(msg, SLURM_SUCCESS) < 1) {
 		error("SIM: Could not confirm batch launch for job %d\n", req->job_id);
@@ -3630,6 +3635,8 @@ simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
 	/* First sending an OK to the controller */
 
 	info("simulator_rpc_terminate_job, jobid = %d", req_kill->job_id);
+
+	debug5("FELIPPE: %s jobid %u memory_nodes %s ",__func__,req_kill->job_id,req_kill->memory_nodes);
 
 	slurm_send_rc_msg(rec_msg, SLURM_SUCCESS);
 

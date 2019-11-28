@@ -210,6 +210,7 @@ extern select_nodeinfo_t *select_p_select_nodeinfo_alloc(void);
 extern int select_p_select_nodeinfo_free(select_nodeinfo_t *nodeinfo);
 
 /* Procedure Declarations */
+static void bitmap_index(bitstr_t *bitmap, int *i_first, int *i_last);
 static int _add_job_to_res(struct job_record *job_ptr, int action);
 static int _job_expand(struct job_record *from_job_ptr,
 		       struct job_record *to_job_ptr);
@@ -240,6 +241,14 @@ struct sort_support {
 	struct job_resources *tmpjobs;
 };
 static int _compare_support(const void *, const void *);
+
+static void bitmap_index(bitstr_t *bitmap, int *i_first, int *i_last){
+	*i_first = bit_ffs(bitmap);
+	if (*i_first == -1)
+		*i_last = -2;
+	else
+		*i_last = bit_fls(bitmap);
+}
 
 static void _dump_job_res(struct job_resources *job) {
 	char str[64];
@@ -834,11 +843,12 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 	if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
 		_dump_job_res(job);
 
-	i_first = bit_ffs(job->node_bitmap);
+	/*i_first = bit_ffs(job->node_bitmap);
 	if (i_first == -1)
 		i_last = -2;
 	else
-		i_last = bit_fls(job->node_bitmap);
+		i_last = bit_fls(job->node_bitmap);*/
+	bitmap_index(job->node_bitmap,&i_first,&i_last);
 	for (i = i_first, n = -1; i <= i_last; i++) {
 		if (!bit_test(job->node_bitmap, i))
 			continue;
@@ -887,6 +897,28 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 				       &job_ptr->gres_detail_str);
 	}
 
+	/* FVZ: Doing node usage actualization for memory pool */
+	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for %u memory_pool nodes",__func__,job_ptr->job_id,job->memory_nhosts);
+	if(job->memory_pool_bitmap == NULL){
+			debug5("FELIPPE: %s memory_pool_bitmap is NULL!!",__func__);
+			return SLURM_ERROR;
+	}
+	
+	bitmap_index(job->memory_pool_bitmap,&i_first,&i_last);
+	n = (int)job->nhosts;
+	debug5("FELIPPE: %s %u memory_pool_nodes %d i_first %d I_last %d index_n",__func__,bit_set_count(job->memory_pool_bitmap),i_first,i_last,n);
+	for (i = i_first; i <= i_last; i++) {
+		if (!bit_test(job->memory_pool_bitmap, i))
+			continue;		
+		select_node_usage[i].alloc_memory +=
+				job->memory_allocated[n];
+		select_node_usage[i].node_state +=
+					job->node_req;
+		debug5("FELIPPE: %s [%d].[n=%d] node %s job_alloced_mem %lu usage %lu",__func__,i,n,select_node_record[i].node_ptr->name,job->memory_allocated[n],select_node_usage[i].alloc_memory);
+
+		n++;
+	}
+
 	/* add cores */
 	if (action != 1) {
 		for (p_ptr = select_part_record; p_ptr; p_ptr = p_ptr->next) {
@@ -926,6 +958,7 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 			/* No row available to record this job */
 		}
 		/* update the node state */
+		bitmap_index(job->node_bitmap,&i_first,&i_last);
 		for (i = i_first, n = -1; i <= i_last; i++) {
 			if (bit_test(job->node_bitmap, i)) {
 				n++;
@@ -1180,7 +1213,7 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 	struct job_resources *job = job_ptr->job_resrcs;
 	struct node_record *node_ptr;
 	int first_bit, last_bit;
-	int i, n;
+	int i, n, idx;
 	List gres_list;
 	bool old_job = false;
 
@@ -1250,6 +1283,38 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 		}
 	}
 
+	/* FVZ: Updating the node_usage structure for memory nodes */
+	idx = job->nhosts;
+	bitmap_index(job->memory_pool_bitmap,&first_bit,&last_bit);
+	for (i = first_bit; i <= last_bit; i++) {
+		if (!bit_test(job->memory_pool_bitmap, i))
+			continue;
+
+		if (action != 2) {
+			debug5("FELIPPE: %s Deallocating job resources of job_id %u memory_node %d idx %d memory_allocated %lu",
+					__func__,job_ptr->job_id,i,idx,job->memory_allocated[idx]);
+			if (node_usage[i].alloc_memory <
+			    job->memory_allocated[idx]) {
+				error("cons_res: node %s memory is "
+				      "under-allocated (%"PRIu64"-%"PRIu64") "
+				      "for job %u",
+				      node_ptr->name,
+				      node_usage[i].alloc_memory,
+				      job->memory_allocated[idx],
+				      job_ptr->job_id);
+				node_usage[i].alloc_memory = 0;
+			} else
+				node_usage[i].alloc_memory -=
+					job->memory_allocated[idx];
+		idx++;
+		}
+		//if ((powercap_get_cluster_current_cap() != 0) &&
+		//    (which_power_layout() == 2)) {
+		//	adapt_layouts(job, job_ptr->details->cpu_freq_max, n,
+		//		      node_ptr->name, false);
+		//}
+	}
+
 	/* subtract cores */
 	if (action != 1) {
 		/* reconstruct rows with remaining jobs */
@@ -1303,6 +1368,8 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 			 * the removal of this job. If all cores are now
 			 * available, set node_state = NODE_CR_AVAILABLE
 			 */
+			/* FVZ: Updating index */
+			bitmap_index(job->node_bitmap,&first_bit,&last_bit);
 			for (i = first_bit, n = -1; i <= last_bit; i++) {
 				if (bit_test(job->node_bitmap, i) == 0)
 					continue;

@@ -395,7 +395,7 @@ static int _build_gres_alloc_string(struct job_record *job_ptr)
  */
 extern void allocate_nodes(struct job_record *job_ptr)
 {
-	int i;
+	int i, n = 0;
 	struct node_record *node_ptr;
 	bool has_cloud = false, has_cloud_power_save = false;
 	static bool cloud_dns = false;
@@ -422,6 +422,23 @@ extern void allocate_nodes(struct job_record *job_ptr)
 				has_cloud_power_save = true;
 		}
 		make_node_alloc(node_ptr, job_ptr);
+	}
+
+	/* FVZ: Dealing with memory nodes */
+	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for %u memory_pool nodes",__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts);
+	n = job_ptr->job_resrcs->nhosts;
+	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
+		i++, node_ptr++) {
+		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
+			continue;
+
+		if (IS_NODE_CLOUD(node_ptr)) {
+			has_cloud = true;
+			if (IS_NODE_POWER_SAVE(node_ptr))
+				has_cloud_power_save = true;
+		}
+		make_node_memory_alloc(node_ptr, job_ptr, n);
+		n++;
 	}
 
 	last_node_update = time(NULL);
@@ -521,6 +538,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	kill_job->job_state = job_ptr->job_state;
 	kill_job->job_uid   = job_ptr->user_id;
 	kill_job->nodes     = xstrdup(job_ptr->nodes);
+	kill_job->memory_nodes     = xstrdup(job_ptr->job_resrcs->memory_nodes);
 	kill_job->time      = time(NULL);
 	kill_job->start_time = job_ptr->start_time;
 	kill_job->select_jobinfo = select_g_select_jobinfo_copy(
@@ -1950,6 +1968,8 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 
 	shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
 					cr_enabled);
+	debug5("FELIPPE: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
+
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
 
@@ -2970,6 +2990,9 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	job_ptr->bit_flags &= ~JOB_KILL_HURRY;
 	job_ptr->job_state &= ~JOB_POWER_UP_NODE;
 	FREE_NULL_BITMAP(job_ptr->node_bitmap);
+	/* FVZ: Cleaning up memory pool bitmap It can't happen otherwise Seg fault is risen */
+	/*if(job_ptr->job_resrcs)
+		FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);*/
 	xfree(job_ptr->nodes);
 	xfree(job_ptr->sched_nodes);
 	job_ptr->exit_code = 0;
@@ -3120,6 +3143,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	 */
 	jobacct_storage_job_start_direct(acct_db_conn, job_ptr);
 
+	/* FVZ: Does the prolog need to be executed on memory nodes? */
 	prolog_slurmctld(job_ptr);
 	reboot_job_nodes(job_ptr);
 	gs_job_start(job_ptr);
@@ -3165,8 +3189,12 @@ cleanup:
 		xfree(node_set_ptr);
 	}
 
-	if (error_code != SLURM_SUCCESS)
+	if (error_code != SLURM_SUCCESS){
 		FREE_NULL_BITMAP(job_ptr->node_bitmap);
+		/* FVZ: Cleaning up memory pool bitmap */
+		if(job_ptr->job_resrcs)
+			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+	}
 
 	return error_code;
 }
@@ -3757,6 +3785,9 @@ static int _build_node_list(struct job_record *job_ptr,
 	bitstr_t *grp_node_bitmap;
 	bool has_xor = false;
 	bool resv_overlap = false;
+	bitstr_t *config_nodes_part_bitmap = NULL;
+	uint64_t requested_mem = 0;
+	uint64_t config_total_mem_avail = 0, part_total_mem_avail = 0;
 	bitstr_t *node_maps[NM_TYPES] = { NULL, NULL, NULL, NULL, NULL, NULL };
 	bitstr_t *reboot_bitmap = NULL;
 
@@ -3831,6 +3862,21 @@ static int _build_node_list(struct job_record *job_ptr,
 	node_set_inx = 0;
 	node_set_len = list_count(config_list) * 16 + 1;
 	node_set_ptr = xcalloc(node_set_len, sizeof(struct node_set));
+
+	/* FVZ: first check if the required memory fits using all configs (different node sets) within the partition */
+	config_iterator = list_iterator_create(config_list);
+	debug5("FELIPPE: %s checking total partition memory avialable",__func__);
+	while ((config_ptr = (struct config_record *)
+			list_next(config_iterator))) {
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
+			part_total_mem_avail += (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
+			debug5("FELIPPE: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",__func__,config_ptr->nodes,config_ptr->real_memory,part_total_mem_avail);
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+	}
+	list_iterator_destroy(config_iterator);
+	debug5("FELIPPE: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
+
 	config_iterator = list_iterator_create(config_list);
 	while ((config_ptr = (struct config_record *)
 			list_next(config_iterator))) {
@@ -3843,9 +3889,24 @@ static int _build_node_list(struct job_record *job_ptr,
 					     total_cores, config_ptr->cpus);
 		if (detail_ptr->pn_min_cpus <= adj_cpus)
 			cpus_ok = true;
+		/* FVZ: check if memory per cpu or mim mem node is less than configuration mem
+		 * It is done as the default procedure, before checking the whole partition memory */
 		if ((detail_ptr->pn_min_memory & (~MEM_PER_CPU)) <=
-		    config_ptr->real_memory)
+		    config_ptr->real_memory){
 			mem_ok = true;
+		}else{
+			/* FVZ: else check if all nodes on config or partition memory  fits the requested mem
+			 * This is not the real total memory, here i'm checking if the requested meomry is feasible */
+			requested_mem = (detail_ptr->pn_min_memory & (~MEM_PER_CPU));
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
+			config_total_mem_avail = (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
+			debug5("FELIPPE: %s requested_mem %lu config_nodes_on_part %zu config_realmemory %lu config_total_mem_avail %lu",
+					__func__,requested_mem,bit_set_count(config_nodes_part_bitmap),config_ptr->real_memory,config_total_mem_avail);
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+			if((requested_mem < config_total_mem_avail) || (requested_mem < part_total_mem_avail))
+				mem_ok = true;
+		}
 		if (detail_ptr->pn_min_tmp_disk <= config_ptr->tmp_disk)
 			disk_ok = true;
 		if (!mc_ptr)
@@ -3887,6 +3948,7 @@ static int _build_node_list(struct job_record *job_ptr,
 		}
 		node_set_ptr[node_set_inx].node_cnt =
 			bit_set_count(node_set_ptr[node_set_inx].my_bitmap);
+		/* FVZ: former fastschedule==0 it will check each node configuration. I did not modify */
 		if (check_node_config &&
 		    (node_set_ptr[node_set_inx].node_cnt != 0)) {
 			_filter_nodes_in_set(&node_set_ptr[node_set_inx],
@@ -4447,6 +4509,7 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 	struct node_record *node_ptr;
 	char *this_node_name;
 	int node_inx = 0;
+	uint32_t mem_nodes = 0;
 
 	if ((job_ptr->node_bitmap == NULL) || (job_ptr->nodes == NULL)) {
 		/* No nodes allocated, we're done... */
@@ -4455,9 +4518,13 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		return;
 	}
 
+	mem_nodes = job_ptr->job_resrcs->memory_nhosts;
+
+
 	/* Use hostlist here to ensure ordering of info matches that of srun */
 	if ((host_list = hostlist_create(job_ptr->nodes)) == NULL)
 		fatal("hostlist_create error for %s: %m", job_ptr->nodes);
+	/* FVZ: maybe this total_nodes could be memory_nodes + allocated nodes */
 	job_ptr->total_nodes = job_ptr->node_cnt = hostlist_count(host_list);
 
 	/* Update the job num_tasks to account for variable node count jobs */
@@ -4465,7 +4532,7 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		job_ptr->details->num_tasks = job_ptr->node_cnt *
 			job_ptr->details->ntasks_per_node;
 
-	xrecalloc(job_ptr->node_addr, job_ptr->node_cnt, sizeof(slurm_addr_t));
+	xrecalloc(job_ptr->node_addr, job_ptr->node_cnt + mem_nodes, sizeof(slurm_addr_t));
 
 #ifdef HAVE_FRONT_END
 	if (new_alloc) {
@@ -4505,6 +4572,22 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		free(this_node_name);
 	}
 	hostlist_destroy(host_list);
+	if ((host_list = hostlist_create(job_ptr->job_resrcs->memory_nodes)) == NULL)
+		fatal("hostlist_create error for memory nodes %s: %m", job_ptr->job_resrcs->memory_nodes);
+	
+	debug5("FELIPPE: %s Adding memory nodes[%u] address to job_id %u",__func__,mem_nodes,job_ptr->job_id);
+	while ((this_node_name = hostlist_shift(host_list))) {
+		if ((node_ptr = find_node_record(this_node_name))) {
+			memcpy(&job_ptr->node_addr[node_inx++],
+			       &node_ptr->slurm_addr, sizeof(slurm_addr_t));
+		} else {
+			error("Invalid node %s in JobId=%u",
+			      this_node_name, job_ptr->job_id);
+		}
+		free(this_node_name);
+	}
+	hostlist_destroy(host_list);
+	
 	if (job_ptr->node_cnt != node_inx) {
 		error("Node count mismatch for %pJ (%u,%u)",
 		      job_ptr, job_ptr->node_cnt, node_inx);

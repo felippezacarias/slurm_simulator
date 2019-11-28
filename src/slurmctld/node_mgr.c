@@ -2358,7 +2358,7 @@ static int _build_node_spec_bitmap(struct node_record *node_ptr)
 {
 	uint32_t c, coff, size;
 	int *cpu_spec_array;
-	uint i, node_inx;
+	int i, node_inx;
 
 	if (node_ptr->threads == 0) {
 		error("Node %s has invalid thread per core count (%u)",
@@ -3818,6 +3818,50 @@ extern void make_node_alloc(struct node_record *node_ptr,
 	last_node_update = time(NULL);
 }
 
+/* FVZ: it is not the best option, maybe make the original function
+ * accept 2 or more arg to execute for both nodes */
+/* make_node_memory_alloc - flag specified node as allocated to a job
+ * IN node_ptr - pointer to node being allocated
+ * IN job_ptr  - pointer to job that is starting
+ * IN node_idx - index of the node on resources array
+ */
+extern void make_node_memory_alloc(struct node_record *node_ptr,
+			    struct job_record *job_ptr, int node_idx)
+{
+	int inx = node_ptr - node_record_table_ptr;
+	uint32_t node_flags;
+
+	(node_ptr->run_job_cnt)++;
+	//FELIPPE: FIXME it fail if it allocates only part of the memory, but free_mem = 0
+	if(job_ptr->job_resrcs->memory_allocated[node_idx] == node_ptr->real_memory)
+		bit_clear(idle_node_bitmap, inx);
+	if (job_ptr->details && (job_ptr->details->share_res == 0)) {
+		bit_clear(share_node_bitmap, inx);
+		(node_ptr->no_share_job_cnt)++;
+	}
+
+	if ((job_ptr->details &&
+	     (job_ptr->details->whole_node == WHOLE_NODE_USER)) ||
+	    (job_ptr->part_ptr &&
+	     (job_ptr->part_ptr->flags & PART_FLAG_EXCLUSIVE_USER))) {
+		node_ptr->owner_job_cnt++;
+		node_ptr->owner = job_ptr->user_id;
+	}
+
+	if (slurm_mcs_get_select(job_ptr) == 1) {
+		xfree(node_ptr->mcs_label);
+		node_ptr->mcs_label = xstrdup(job_ptr->mcs_label);
+	}
+
+	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
+	node_ptr->node_state = NODE_STATE_ALLOCATED | node_flags;
+	xfree(node_ptr->reason);
+	node_ptr->reason_time = 0;
+	node_ptr->reason_uid = NO_VAL;
+
+	last_node_update = time (NULL);
+}
+
 /* make_node_avail - flag specified node as available */
 extern void make_node_avail(int node_inx)
 {
@@ -3878,6 +3922,8 @@ extern void make_node_comp(struct node_record *node_ptr,
 	}
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 
+	/* FVZ: For memory nodes it will only set idle_bitmap set if it was only 
+	 * running this job */
 	if ((node_ptr->run_job_cnt  == 0) &&
 	    (node_ptr->comp_job_cnt == 0)) {
 		node_ptr->last_idle = now;

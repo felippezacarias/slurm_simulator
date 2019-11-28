@@ -2089,6 +2089,8 @@ static batch_job_launch_msg_t *_build_launch_job_msg(struct job_record *job_ptr,
 	launch_msg_ptr->ntasks = job_ptr->details->num_tasks;
 	launch_msg_ptr->alias_list = xstrdup(job_ptr->alias_list);
 	launch_msg_ptr->nodes = xstrdup(job_ptr->nodes);
+	/* FVZ: Adding memory node names */
+	launch_msg_ptr->memory_nodes = xstrdup(job_ptr->job_resrcs->memory_nodes);
 	launch_msg_ptr->overcommit = job_ptr->details->overcommit;
 	launch_msg_ptr->open_mode  = job_ptr->details->open_mode;
 	launch_msg_ptr->cpus_per_task = job_ptr->details->cpus_per_task;

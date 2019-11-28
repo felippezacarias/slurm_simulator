@@ -521,11 +521,15 @@ generateJob(job_trace_t* jobd) {
 	dmesg.account       = strdup(jobd->account);
 	dmesg.reservation   = strdup(jobd->reservation);
 	dmesg.dependency    = re_write_dependencies(jobd->dependency);
-	dmesg.num_tasks     = jobd->tasks;
-	dmesg.min_cpus      = jobd->tasks * jobd->cpus_per_task; 
-	dmesg.cpus_per_task = jobd->cpus_per_task;
-	dmesg.min_nodes     = jobd->tasks;
-	dmesg.ntasks_per_node = jobd->tasks_per_node;
+
+	if(jobd->shared == 0) dmesg.shared = jobd->shared;
+	if(jobd->tasks_per_node) dmesg.ntasks_per_node = jobd->tasks_per_node;
+	if(jobd->min_nodes) dmesg.min_nodes = jobd->min_nodes;
+	if(jobd->cpus_per_task) dmesg.cpus_per_task = jobd->cpus_per_task;
+	if(jobd->tasks) dmesg.num_tasks = jobd->tasks;
+	if(jobd->min_cpus) dmesg.min_cpus = jobd->min_cpus;
+	if(jobd->pn_mim_memory) dmesg.pn_min_memory = jobd->pn_mim_memory;
+
 
 	/* Need something for environment--Should make this een more generic! */
 	dmesg.environment  = (char**)malloc(sizeof(char*)*2);

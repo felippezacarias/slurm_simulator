@@ -976,6 +976,8 @@ typedef struct kill_job_msg {
 	uint32_t job_state;
 	uint32_t job_uid;
 	char *nodes;
+	/* FVZ: memory node name used by the job */
+	char *memory_nodes;
 	uint32_t pack_jobid;
 	dynamic_plugin_data_t *select_jobinfo;	/* opaque data type */
 	char **spank_job_env;
@@ -1072,6 +1074,7 @@ typedef struct batch_job_launch_msg {
 	uint16_t cpus_per_task;	/* number of CPUs requested per task */
 	uint16_t job_core_spec;	/* Count of specialized cores */
 	char *nodes;		/* list of nodes allocated to job_step */
+	char *memory_nodes;		/* list of memory nodes allocated to job_step */
 	uint32_t profile;       /* what to profile for the batch step */
 	char *script;		/* the actual job script, default NONE */
 	Buf script_buf;		/* the job script as a mmap buf */
