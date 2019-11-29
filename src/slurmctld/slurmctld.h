@@ -1915,14 +1915,7 @@ extern void log_feature_lists(void);
  * IN job_ptr  - pointer to job that is starting
  */
 extern void make_node_alloc(struct node_record *node_ptr,
-			    struct job_record *job_ptr);
-
-/* make_node_memory_alloc - flag specified node memory as allocated to a job
- * IN node_ptr - pointer to node being allocated
- * IN job_ptr  - pointer to job that is starting
- */
-extern void make_node_memory_alloc(struct node_record *node_ptr,
-			    struct job_record *job_ptr, int node_idx);
+			    struct job_record *job_ptr, int node_idx, bool memory_node);
 
 /* make_node_comp - flag specified node as completing a job
  * IN node_ptr - pointer to node marked for completion of job
@@ -1936,9 +1929,10 @@ extern void make_node_comp(struct node_record *node_ptr,
  * make_node_idle - flag specified node as having finished with a job
  * IN node_ptr - pointer to node reporting job completion
  * IN job_ptr - pointer to job that just completed or NULL if not applicable
+ * IN memory_node - boolean if it is applied for memory nodes
  */
 extern void make_node_idle(struct node_record *node_ptr,
-			   struct job_record *job_ptr);
+			   struct job_record *job_ptr, bool memory_node);
 
 /*
  * Determine of the specified job can execute right now or is currently

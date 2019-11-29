@@ -421,11 +421,12 @@ extern void allocate_nodes(struct job_record *job_ptr)
 			if (IS_NODE_POWER_SAVE(node_ptr))
 				has_cloud_power_save = true;
 		}
-		make_node_alloc(node_ptr, job_ptr);
+		make_node_alloc(node_ptr, job_ptr, 0, false);
 	}
 
 	/* FVZ: Dealing with memory nodes */
-	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for %u memory_pool nodes",__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts);
+	debug5("FELIPPE: %s job_id %u make_node_memory_alloc for %u memory_pool nodes %s share %u",
+			__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res);
 	n = job_ptr->job_resrcs->nhosts;
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 		i++, node_ptr++) {
@@ -437,7 +438,7 @@ extern void allocate_nodes(struct job_record *job_ptr)
 			if (IS_NODE_POWER_SAVE(node_ptr))
 				has_cloud_power_save = true;
 		}
-		make_node_memory_alloc(node_ptr, job_ptr, n);
+		make_node_alloc(node_ptr, job_ptr, n, true);
 		n++;
 	}
 
@@ -583,6 +584,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 				front_end_ptr->node_state = NODE_STATE_IDLE |
 							    state_flags;
 			}
+			debug5("FELIPPE: %s if (job_ptr->batch_host && frontend job_id %u, frontend %s",__func__,job_ptr->job_id,front_end_ptr->name);
 			for (i = 0, node_ptr = node_record_table_ptr;
 			     i < node_record_count; i++, node_ptr++) {
 				if (!bit_test(job_ptr->node_bitmap, i))
@@ -604,6 +606,8 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	if (!job_ptr->node_bitmap_cg)
 		build_cg_bitmap(job_ptr);
 	agent_args->protocol_version = SLURM_PROTOCOL_VERSION;
+	debug5("FELIPPE: %s job_id %u  for %u cg_nodes nodes %s",
+			__func__,job_ptr->job_id,bit_set_count(job_ptr->node_bitmap_cg),job_ptr->nodes);
 	for (i = 0, node_ptr = node_record_table_ptr;
 	     i < node_record_count; i++, node_ptr++) {
 		if (!bit_test(job_ptr->node_bitmap_cg, i))
@@ -637,6 +641,47 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 		agent_args->node_count++;
 	}
 #endif
+
+	debug5("FELIPPE: %s job_id %u  for %u memory_pool nodes %s",
+			__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes);
+	if(job_ptr->job_resrcs && job_ptr->job_resrcs->memory_pool_bitmap){
+		for (i = 0, node_ptr = node_record_table_ptr;
+			i < node_record_count; i++, node_ptr++) {
+			if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
+				continue;
+			//if (IS_NODE_DOWN(node_ptr) ||
+			//	IS_NODE_POWER_UP(node_ptr)) {
+			//	/* Issue the KILL RPC, but don't verify response */
+			//	down_node_cnt++;
+			//	if (job_ptr->node_bitmap_cg == NULL) {
+			//		error("deallocate_nodes: node_bitmap_cg is "
+			//			"not set");
+			//		build_cg_bitmap(job_ptr);
+			//	}
+			//	bit_clear(job_ptr->node_bitmap_cg, i);
+			//	job_update_tres_cnt(job_ptr, i);
+			//	/*
+			//	* node_cnt indicates how many nodes we are waiting
+			//	* to get epilog complete messages from, so do not
+			//	* count down nodes. NOTE: The job's node_cnt will not
+			//	* match the number of entries in the node string
+			//	* during its completion.
+			//	*/
+			//	job_ptr->node_cnt--;
+			//}
+			make_node_comp(node_ptr, job_ptr, suspended);
+
+			//if (agent_args->protocol_version > node_ptr->protocol_version)
+			//	agent_args->protocol_version =
+			//		node_ptr->protocol_version;
+			//FELIPPE: this is generating a error, Unable to resolve "node_name"
+			//FELIPPE: it is only happing here for memory nodes on front end mode
+			//FELIPPE: see if it also happens on normal mode
+			//hostlist_push_host(agent_args->hostlist, node_ptr->name);
+			//agent_args->node_count++;
+		}
+	}
+
 
 	if ((agent_args->node_count - down_node_cnt) == 0) {
 		/* Can not wait for epilog complete to release licenses and
@@ -2779,6 +2824,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	can_reboot = node_features_g_user_update(job_ptr->user_id);
 	error_code = _build_node_list(job_ptr, &node_set_ptr, &node_set_size,
 				      err_msg, test_only, can_reboot);
+  	debug5("FELIPPE: %s after _build_node_list jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	if (error_code)
 		return error_code;
 	if (node_set_ptr == NULL)	/* Should never be true */
@@ -2835,6 +2881,14 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		job_ptr->node_cnt_wag = selected_node_cnt;
 	} else
 		selected_node_cnt = req_nodes;
+
+	/* FVZ: Debug */
+	if(select_bitmap){
+		char *name;
+		name = bitmap2node_name(select_bitmap);
+		debug5("FELIPPE: %s jobid %u select_node_count %d  name %s",__func__,job_ptr->job_id,bit_set_count(select_bitmap),name);
+		xfree(name);
+	}
 
 	memcpy(tres_req_cnt, job_ptr->tres_req_cnt, sizeof(tres_req_cnt));
 	tres_req_cnt[TRES_ARRAY_CPU] =
@@ -3103,10 +3157,18 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		}
 	}
 
+	debug5("FELIPPE: %s node_env_state before allocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
+
+
 	allocate_nodes(job_ptr);
 	job_array_start(job_ptr);
 	build_node_details(job_ptr, true);
 	rebuild_job_part_list(job_ptr);
+
+	debug5("FELIPPE: %s node_env_state after allocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
+
 
 	if (nonstop_ops.job_begin)
 		(nonstop_ops.job_begin)(job_ptr);
@@ -3196,6 +3258,7 @@ cleanup:
 			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 	}
 
+	debug5("FELIPPE: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	return error_code;
 }
 
@@ -4524,15 +4587,17 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 	/* Use hostlist here to ensure ordering of info matches that of srun */
 	if ((host_list = hostlist_create(job_ptr->nodes)) == NULL)
 		fatal("hostlist_create error for %s: %m", job_ptr->nodes);
-	/* FVZ: maybe this total_nodes could be memory_nodes + allocated nodes */
-	job_ptr->total_nodes = job_ptr->node_cnt = hostlist_count(host_list);
+	/* FVZ: maybe this total_nodes could be memory_nodes + allocated nodes 
+	 * Adding mem_nodes on job_ptr->node_cnt as the function make_node_idle
+	 * modifying its value, be careful with future implications */
+	job_ptr->total_nodes = job_ptr->node_cnt = (hostlist_count(host_list) + mem_nodes);
 
 	/* Update the job num_tasks to account for variable node count jobs */
 	if (job_ptr->details->ntasks_per_node && job_ptr->details->num_tasks)
 		job_ptr->details->num_tasks = job_ptr->node_cnt *
 			job_ptr->details->ntasks_per_node;
 
-	xrecalloc(job_ptr->node_addr, job_ptr->node_cnt + mem_nodes, sizeof(slurm_addr_t));
+	xrecalloc(job_ptr->node_addr, job_ptr->node_cnt, sizeof(slurm_addr_t));
 
 #ifdef HAVE_FRONT_END
 	if (new_alloc) {
@@ -4587,7 +4652,7 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 		free(this_node_name);
 	}
 	hostlist_destroy(host_list);
-	
+
 	if (job_ptr->node_cnt != node_inx) {
 		error("Node count mismatch for %pJ (%u,%u)",
 		      job_ptr, job_ptr->node_cnt, node_inx);

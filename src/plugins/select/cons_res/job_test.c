@@ -125,6 +125,9 @@ static int _eval_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 			uint32_t req_nodes, uint32_t cr_node_cnt,
 			uint16_t *cpu_cnt, uint16_t cr_type,
 			bool prefer_alloc_nodes);
+static int _eval_memory(struct job_record *job_ptr, 
+			bitstr_t *node_map, bitstr_t *memory_pool_map,
+			struct node_use_record *node_usage, bool test_only);
 static int _eval_nodes_busy(struct job_record *job_ptr, bitstr_t *node_map,
 			uint32_t min_nodes, uint32_t max_nodes,
 			uint32_t req_nodes, uint32_t cr_node_cnt,
@@ -156,7 +159,7 @@ static uint32_t _gres_sock_job_test(List job_gres_list, List node_gres_list,
 				    uint32_t node_i, uint32_t s_p_n);
 static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 				uint32_t max_nodes, uint32_t req_nodes,
-				bitstr_t *node_map, uint32_t cr_node_cnt,
+				bitstr_t *node_map,  bitstr_t *memory_pool_map, uint32_t cr_node_cnt,
 				bitstr_t *core_map,
 				struct node_use_record *node_usage,
 				uint16_t cr_type, bool test_only, bool will_run,
@@ -669,6 +672,7 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 	if (gres_cores == 0)
 		return (uint16_t) 0;
 
+	/* FVZ: this step returns the core bitmap os available cores */
 	if (cr_type & CR_CORE) {
 		/* cpu_alloc_size = CPUs per core */
 		cpu_alloc_size = select_node_record[node_i].vpus;
@@ -697,53 +701,9 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 			    select_node_record[node_i].mem_spec_limit;
 		if (!test_only)
 			avail_mem -= node_usage[node_i].alloc_memory;
-		if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
-			/* memory is per-cpu */
-			if (((job_ptr->bit_flags & BF_WHOLE_NODE_TEST) == 0) &&
-			    ((req_mem * cpus) > avail_mem) &&
-			    (job_ptr->details->whole_node == 1)) {
-				cpus = 0;
-			} else if (!(cr_type & CR_CPU) &&
-				   job_ptr->details->mc_ptr &&
-				   (job_ptr->details->mc_ptr->
-				    ntasks_per_core == 1) &&
-				   job_ptr->details->cpus_per_task == 1) {
-				/*
-				 * In this scenario, CPUs represents cores and
-				 * the cpu/core count will be inflated later on
-				 * to include all of the threads on a core. So
-				 * we need to compare apples to apples and only
-				 * remove 1 cpu/core at a time.
-				 */
-				while ((cpus > 0) &&
-				       ((req_mem *
-					 ((int) cpus *
-					  (int) select_node_record[node_i].vpus))
-					 > avail_mem))
-					cpus -= 1;
-			} else {
-				while ((req_mem * cpus) > avail_mem) {
-					if (cpus >= cpu_alloc_size) {
-						cpus -= cpu_alloc_size;
-					} else {
-						cpus = 0;
-						break;
-					}
-				}
-			}
-
-			if (job_ptr->details->cpus_per_task > 1) {
-				i = cpus % job_ptr->details->cpus_per_task;
-				cpus -= i;
-			}
-			if (cpus < job_ptr->details->ntasks_per_node)
-				cpus = 0;
-			/* FIXME: Need to recheck min_cores, etc. here */
-		} else {
-			/* memory is per node */
-			if (req_mem > avail_mem)
-				cpus = 0;
-		}
+		/* FVZ: if the node does not have memory we clear its core bits */
+		if(avail_mem == 0)
+			cpus = 0;
 	}
 
 	gres_cpus = gres_cores;
@@ -849,7 +809,12 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 	List gres_list;
 	int i, i_first, i_last;
 
-	if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
+	min_mem = 1;
+	/*  FVZ: We don't need check mim memory, we just need check if
+	/ * the node have or does not have free memory.
+	/ * later we can improve it as the node can have free cores
+	/ *: that can be used */
+	/*if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
 		uint16_t min_cpus;
 		min_mem = job_ptr->details->pn_min_memory & (~MEM_PER_CPU);
 		min_cpus = MAX(job_ptr->details->ntasks_per_node,
@@ -857,9 +822,11 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 		min_cpus = MAX(min_cpus, job_ptr->details->cpus_per_task);
 		if (min_cpus > 0)
 			min_mem *= min_cpus;
+		debug5("FELIPPE: %s job_id %u min_cpus %u", __func__,job_ptr->job_id,min_cpus);
 	} else {
 		min_mem = job_ptr->details->pn_min_memory;
-	}
+	}*/
+	debug5("FELIPPE: %s job_id %u min_mem %lu", __func__,job_ptr->job_id,min_mem);
 	i_first = bit_ffs(node_bitmap);
 	if (i_first == -1)
 		i_last = -2;
@@ -882,13 +849,19 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 					   node_usage[i].alloc_memory;
 			else
 				free_mem = 0;
-			if (free_mem < min_mem) {
+			/* FVZ: Instead of comparing free and min, to support min_mem higher than node memory,
+			 * we only clear bit if free_mem == 0; otherwise we can use this node */
+			if (!free_mem) {
 				debug3("cons_res: _vns: node %s no mem %"
 					""PRIu64" < %"PRIu64"",
 					select_node_record[i].node_ptr->name,
 					free_mem, min_mem);
 				goto clear_bit;
-			}
+			}else if((node_usage[i].alloc_memory !=  0) && (job_ptr->details->share_res == 0)){
+				debug5("FELIPPE: %s job_id %u requested exclusive node, node %s mem_usage %lu!",
+				__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,node_usage[i].alloc_memory);
+				goto clear_bit;
+			} 
 		} else if (cr_type & CR_MEMORY) {   /* --mem=0 for all memory */
 			if (node_usage[i].alloc_memory) {
 				debug3("cons_res: _vns: node %s mem in use %"
@@ -2939,6 +2912,133 @@ static int _eval_nodes_dfly(struct job_record *job_ptr, bitstr_t *bitmap,
 	return rc;
 }
 
+/*_avail_memory - Given the bitmap of allocate nodes regarding core count,
+* tasks, tasks_per_node and so on, confirm if the set of nodes has enough 
+* memory to execute the job. Otherwise, it will iterate over nodes with 
+* free memory and add them to the job node list.
+* IN job_ptr - job pointer to access job_details
+* IN node_map - bitmap of select nodes
+* IN/OUT memory_pool_map - bitmap of nodes with free memory and not 
+*							set in node_map
+* IN node_usage - stucture used to get node allocated_mem
+* IN test_only - boolean to test job allocation
+* RET - SUCCESS if the memory requirement is achieved
+*/
+static int _eval_memory(struct job_record *job_ptr, 
+			bitstr_t *node_map, bitstr_t *memory_pool_map,
+			struct node_use_record *node_usage, bool test_only)
+{
+	int i, nodes, error_code = SLURM_ERROR;
+	uint64_t tot_req_mem = 0, req_mem = 0, tot_alloc_mem = 0;
+	uint64_t free_mem;
+	int i_first, i_last, mem_nodes = 0;
+	char *node_name,*mem_node_name;
+
+	debug5("FELIPPE: %s for job_id %u",__func__,job_ptr->job_id);
+
+	req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
+	node_name = bitmap2node_name(node_map);
+	nodes 	  = bit_set_count(node_map);
+
+	if (job_ptr->details->pn_min_memory & MEM_PER_CPU) {
+		/* memory is per-cpu */
+		uint16_t min_cpus;
+		/* FVZ: Covering if the user specify tasks or other thing.
+		* if user specify only min_nodes and the memory is per cpu,
+		* I'm using the number of nodes in this case */
+		debug5("FELIPPE: %s for job_id %u tasks %u tasks_per_node %u min_cpu %u cpu_per_task %u nodes %u",
+				__func__,job_ptr->job_id,job_ptr->details->num_tasks,job_ptr->details->ntasks_per_node,job_ptr->details->min_cpus,job_ptr->details->cpus_per_task,nodes);
+		if(job_ptr->details->num_tasks > 1){
+			min_cpus = job_ptr->details->num_tasks;
+			/* FVZ: I believe that here it allocates more memory than need when
+			 * num_tasks/ntasks_per_node is odd */
+			if(job_ptr->details->ntasks_per_node) {
+				min_cpus = nodes;
+				req_mem*=job_ptr->details->ntasks_per_node;
+			}
+		}
+		else
+			min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+
+		tot_req_mem = (min_cpus * req_mem);
+		debug5("FELIPPE: %s for job_id %u percpu %lu tot_req_mem %lu using min_cpus %u node_name %s",
+				__func__,job_ptr->job_id,req_mem,tot_req_mem,min_cpus,node_name);
+	}
+	else{
+		/* memory is per node */
+		tot_req_mem = nodes * req_mem;
+		debug5("FELIPPE: %s for job_id %u per-node %lu tot_req_mem %lu using %d nodes %s",
+				__func__,job_ptr->job_id,req_mem,tot_req_mem,nodes,node_name);
+	}
+
+	i_first = bit_ffs(node_map);
+	if (i_first == -1)
+		i_last = -2;
+	else
+		i_last  = bit_fls(node_map);
+	/* FVZ: Iterate over chosen nodes and accumulate its total available mem */
+	for (i = i_first; i <= i_last; i++) {
+		if (!bit_test(node_map, i))
+			continue;
+		free_mem = select_node_record[i].real_memory;
+		if(!test_only)	free_mem -= node_usage[i].alloc_memory;
+
+		tot_alloc_mem += free_mem;
+	}
+	debug5("FELIPPE: %s for job_id %u total memory from selected nodes [%s] %lu Job requires %lu",
+			__func__,job_ptr->job_id,node_name,tot_alloc_mem,tot_req_mem);
+
+
+	/* FVZ: Iterate over memory_pool to increase memory */
+	if(tot_alloc_mem < tot_req_mem){
+		i_first = bit_ffs(memory_pool_map);
+		if (i_first == -1)
+			i_last = -2;
+		else
+			i_last  = bit_fls(memory_pool_map);
+		for (i = i_first; i <= i_last; i++) {
+			if (!bit_test(memory_pool_map, i))
+				continue;
+			free_mem = select_node_record[i].real_memory;
+			if(!test_only)	free_mem -= node_usage[i].alloc_memory;
+			/* FVZ: Double checking the memory available */
+			if(free_mem == 0){
+				bit_clear(memory_pool_map,i);
+				continue;
+			}		
+			tot_alloc_mem += free_mem;
+			debug5("FELIPPE: %s [memory node %s free_mem %lu] total allocated up now %lu",
+					__func__,select_node_record[i].node_ptr->name,free_mem,tot_alloc_mem);
+			mem_nodes++;
+			if(tot_alloc_mem >= tot_req_mem){
+				error_code = SLURM_SUCCESS;
+				while(i < i_last){
+					i++;
+					bit_clear(memory_pool_map,i);
+				}
+				mem_node_name = bitmap2node_name(memory_pool_map);
+				debug5("FELIPPE: %s for job_id %u requested memory achieved using %d memory nodes %s",
+						__func__,job_ptr->job_id,mem_nodes,mem_node_name);
+				xfree(mem_node_name);
+				break;
+			}
+		}
+	}
+	else
+	{
+		bit_clear_all(memory_pool_map);
+		debug5("FELIPPE: %s for job_id %u does not need memory nodes. Memory requirement fits on %s",__func__,job_ptr->job_id,node_name);		
+		error_code = SLURM_SUCCESS;
+	}	
+
+	xfree(node_name);
+	if(tot_alloc_mem < tot_req_mem) {
+		debug5("FELIPPE: %s for job_id %u was not possible to allocate enough memory %lu for this job. Required %lu!!",__func__,job_ptr->job_id,tot_alloc_mem,tot_req_mem);		
+		return SLURM_ERROR;
+	}
+	return error_code;
+}
+
 /* this is an intermediary step between _select_nodes and _eval_nodes
  * to tackle the knapsack problem. This code incrementally removes nodes
  * with low cpu counts for the job and re-evaluates each result */
@@ -2950,12 +3050,15 @@ static int _choose_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 {
 	int i, count, ec, most_cpus = 0;
 	bitstr_t *origmap, *reqmap = NULL;
+	uint64_t free_mem;
 	int rem_node_cnt, rem_cpu_cnt = 0;
 
 	if (job_ptr->details->req_node_bitmap)
 		reqmap = job_ptr->details->req_node_bitmap;
 
 	/* clear nodes from the bitmap that don't have available resources */
+	/* FVZ: Here we can't clear nodes without checking if they have 
+	 * free memory */
 	for (i = 0; i < cr_node_cnt; i++) {
 		if (!bit_test(node_map, i))
 			continue;
@@ -3076,7 +3179,7 @@ static inline void _log_select_maps(char *loc, bitstr_t *node_map,
  */
 static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 				uint32_t max_nodes, uint32_t req_nodes,
-				bitstr_t *node_map, uint32_t cr_node_cnt,
+				bitstr_t *node_map, bitstr_t *memory_pool_map, uint32_t cr_node_cnt,
 				bitstr_t *core_map,
 				struct node_use_record *node_usage,
 				uint16_t cr_type, bool test_only, bool will_run,
@@ -3123,13 +3226,35 @@ static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 		min_nodes = MAX(min_nodes, i);
 	}
 
+	/* FVZ: bitstring that will hold nodes with free_mem */
+	debug5("FELIPPE: %s Cleaning memory_pool_bitmap",__func__);
+	bit_clear_all(memory_pool_map);
+	bit_or(memory_pool_map,node_map);
+
+	debug5("FELIPPE: %s memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+
 	/* choose the best nodes for the job */
 	rc = _choose_nodes(job_ptr, node_map, min_nodes, max_nodes, req_nodes,
 			   cr_node_cnt, cpu_cnt, cr_type, prefer_alloc_nodes);
+	debug5("FELIPPE: %s After _choose_nodes error_code %d",__func__,rc);
 	_log_select_maps("_select_nodes/choose_nodes", node_map, core_map);
+
+	/* FVZ: eval_nodes and _choose_nodes return the bitmap of nodes that satisfy user request
+	* regarding cores and nodes, we have to garantee that total memory
+	* is also satisfied. _eval_memory() returns nodes available to be memory pool */
+	bit_and_not(memory_pool_map,node_map);
+	debug5("FELIPPE: %s After bit_and_not memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+	
+	if(rc == SLURM_SUCCESS){
+		rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
+		debug5("FELIPPE: %s error_code %d after _eval_memory",__func__,rc);
+		debug5("FELIPPE: %s After _eval_memory memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
+	}
 
 	/* if successful, sync up the core_map with the node_map, and
 	 * create a cpus array */
+	/* FVZ:  The core_map can't have the cores of the pool_mem nodes
+	 * if cpu_cnt[i]=0 is sufficient */
 	if (rc == SLURM_SUCCESS) {
 		cpus = xmalloc(bit_set_count(node_map) * sizeof(uint16_t));
 		start = 0;
@@ -3213,6 +3338,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	bitstr_t *orig_map, *avail_cores, *free_cores, *part_core_map = NULL;
 	bitstr_t *free_cores_tmp = NULL,  *node_bitmap_tmp = NULL;
 	bitstr_t *free_cores_tmp2 = NULL, *node_bitmap_tmp2 = NULL;
+	bitstr_t *memory_pool_map = NULL;
 	bool test_only, will_run;
 	uint32_t c, j, k, n, c_alloc = 0, c_size, total_cpus;
 	uint64_t save_mem = 0, avail_mem = 0, lowest_mem = 0, needed_mem = 0;
@@ -3248,6 +3374,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 
 	/* check node_state and update the node_bitmap as necessary */
 	if (!test_only) {
+		/* FVZ: Here we clear nodes that has 0 free_mem */
 		error_code = _verify_node_state(cr_part_ptr, job_ptr,
 						node_bitmap, cr_type,
 						node_usage, job_node_req,
@@ -3295,15 +3422,24 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	 *          within avail_cores
 	 */
 	free_cores = bit_copy(avail_cores);
+	/* FVZ: initialize the memory_pool_bitmap */
+	memory_pool_map = bit_alloc(bit_size(node_bitmap));
+	debug5("FELIPPE: %s before _select_nodes 1 evaluating job %u on %u nodes test_only %d",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap),test_only);
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
-				  node_bitmap, cr_node_cnt, free_cores,
+				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only, will_run,
 				  part_core_map, prefer_alloc_nodes);
+	debug5("FELIPPE: %s after _select_nodes 1 job %u on %lu memory_nodes test_only %d!",
+			__func__,job_ptr->job_id, bit_set_count(memory_pool_map),test_only);
 	if (cpu_count == NULL) {
 		/* job cannot fit */
 		FREE_NULL_BITMAP(orig_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
+		FREE_NULL_BITMAP(memory_pool_map);
+		debug5("FELIPPE: %s not enough resources job %u test_only %d!",
+			__func__,job_ptr->job_id,test_only);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE) {
 			info("cons_res: cr_job_test: test 0 fail: "
 			     "insufficient resources");
@@ -3313,6 +3449,8 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		FREE_NULL_BITMAP(orig_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
+		/* FVZ: on test only must have this free */
+		FREE_NULL_BITMAP(memory_pool_map);
 		xfree(cpu_count);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
 			info("cons_res: cr_job_test: test 0 pass: test_only");
@@ -3321,6 +3459,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		FREE_NULL_BITMAP(orig_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
+		FREE_NULL_BITMAP(memory_pool_map);
 		xfree(cpu_count);
 		if (select_debug_flags & DEBUG_FLAG_CPU_BIND) {
 			info("cons_res: cr_job_test: test 0 fail: "
@@ -3422,13 +3561,18 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	if (job_ptr->details->whole_node == 1)
 		_block_whole_nodes(node_bitmap, avail_cores, free_cores);
 
+	debug5("FELIPPE: %s before _select_nodes 2 evaluating job %u on %u nodes test_only %d",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap),test_only);
+
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
-				  node_bitmap, cr_node_cnt, free_cores,
+				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only, will_run,
 				  part_core_map, prefer_alloc_nodes);
 
 	if ((cpu_count) && (job_ptr->best_switch)) {
 		/* job fits! We're done. */
+		debug5("FELIPPE: %s after _select_nodes 2 job %u on %u nodes and memory_nodes %u test_only %d job fits!",
+			__func__,job_ptr->job_id, bit_set_count(node_bitmap), bit_set_count(memory_pool_map), test_only);
 		if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE) {
 			info("cons_res: cr_job_test: test 1 pass - "
 			     "idle resources found");
@@ -3508,7 +3652,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	bit_copybits(avail_cores, free_cores);
 
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
-				  node_bitmap, cr_node_cnt, free_cores,
+				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only, will_run,
 				  part_core_map, prefer_alloc_nodes);
 	if (!cpu_count) {
@@ -3551,7 +3695,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	free_cores_tmp  = bit_copy(free_cores);
 	node_bitmap_tmp = bit_copy(node_bitmap);
 	cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes, req_nodes,
-				  node_bitmap, cr_node_cnt, free_cores,
+				  node_bitmap, memory_pool_map, cr_node_cnt, free_cores,
 				  node_usage, cr_type, test_only, will_run,
 				  part_core_map, prefer_alloc_nodes);
 
@@ -3583,7 +3727,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 			node_bitmap_tmp2 = bit_copy(node_bitmap_tmp);
 			cpu_count_tmp = _select_nodes(job_ptr, min_nodes,
 						max_nodes, req_nodes,
-						node_bitmap_tmp, cr_node_cnt,
+						node_bitmap_tmp, memory_pool_map, cr_node_cnt,
 						free_cores_tmp, node_usage,
 						cr_type, test_only, will_run,
 						part_core_map,
@@ -3631,7 +3775,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		bit_copybits(node_bitmap, orig_map);
 		bit_copybits(free_cores, avail_cores);
 		cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes,
-					  req_nodes, node_bitmap, cr_node_cnt,
+					  req_nodes, node_bitmap, memory_pool_map, cr_node_cnt,
 					  free_cores, node_usage, cr_type,
 					  test_only, will_run, part_core_map,
 					  prefer_alloc_nodes);
@@ -3661,7 +3805,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 					   free_cores);
 
 		cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes,
-					  req_nodes, node_bitmap, cr_node_cnt,
+					  req_nodes, node_bitmap, memory_pool_map, cr_node_cnt,
 					  free_cores, node_usage, cr_type,
 					  test_only, will_run, part_core_map,
 					  prefer_alloc_nodes);
@@ -3685,7 +3829,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 			     "test 4 trying empty row %i",i);
 		}
 		cpu_count = _select_nodes(job_ptr, min_nodes, max_nodes,
-					  req_nodes, node_bitmap, cr_node_cnt,
+					  req_nodes, node_bitmap, memory_pool_map, cr_node_cnt,
 					  free_cores, node_usage, cr_type,
 					  test_only, will_run, part_core_map,
 					  prefer_alloc_nodes);
@@ -3765,6 +3909,7 @@ alloc_job:
 	}
 
 	/** create the struct_job_res  **/
+	/* FVZ: here node_bitmap should have both compute and pool_mem nodes */
 	job_res                   = create_job_resources();
 	job_res->node_bitmap      = bit_copy(node_bitmap);
 	job_res->nodes            = bitmap2node_name(node_bitmap);
@@ -3779,11 +3924,24 @@ alloc_job:
 					 details_ptr->pn_min_cpus));
 	job_res->node_req         = job_node_req;
 	job_res->cpus             = cpu_count;
+
+	debug5("FELIPPE: %s job resources of job_id %u filling in memory_nodes info",__func__,job_ptr->job_id);
+
+	job_res->memory_pool_bitmap      = bit_copy(memory_pool_map);
+	//job_res->memory_pool_bitmap      = memory_pool_map;
+	job_res->memory_nodes            = bitmap2node_name(memory_pool_map);
+	job_res->memory_nhosts           = bit_set_count(memory_pool_map);
+	/* FVZ: free memory_pool_here after copy */
+	FREE_NULL_BITMAP(memory_pool_map);
+	debug5("FELIPPE: %s job resources of job_id %u memory_nodes %s memory_nhosts %u bitmap %lu",
+			__func__,job_ptr->job_id,job_res->memory_nodes,job_res->memory_nhosts,bit_set_count(job_res->memory_pool_bitmap));
+
+
 	job_res->cpus_used        = xmalloc(job_res->nhosts *
 					    sizeof(uint16_t));
-	job_res->memory_allocated = xmalloc(job_res->nhosts *
+	job_res->memory_allocated = xmalloc((job_res->nhosts + job_res->memory_nhosts) *
 					    sizeof(uint64_t));
-	job_res->memory_used      = xmalloc(job_res->nhosts *
+	job_res->memory_used      = xmalloc((job_res->nhosts + job_res->memory_nhosts) *
 					    sizeof(uint64_t));
 	job_res->whole_node       = job_ptr->details->whole_node;
 
@@ -3926,69 +4084,200 @@ alloc_job:
 	if (!(cr_type & CR_MEMORY))
 		return error_code;
 
+	/* FVZ: make distinction, for compute nodes it alocates all the memory
+	 * for pool nodes, it has to allocate its free_mem */
 	/* load memory allocated array */
 	save_mem = details_ptr->pn_min_memory;
+	int idx = 0;
+	uint64_t avail = 0, rem = 0, min_cpus, allocated;
+	uint32_t nodes;
+	bool using_nodes = false;
+	bool mem_avail = false;
 
-	first = bit_ffs(job_res->node_bitmap);
-	if (first != -1)
-		last = bit_fls(job_res->node_bitmap);
-	else
-		last = first - 1;
-	for (i = first, j = 0; i <= last; i++) {
-		if (!bit_test(job_res->node_bitmap, i))
-			continue;
-		avail_mem = select_node_record[i].real_memory -
-				select_node_record[i].mem_spec_limit;
-		if (save_mem & MEM_PER_CPU) {	/* Memory per CPU */
-			needed_mem = job_res->cpus[j] *
-					(save_mem & (~MEM_PER_CPU));
-		} else if (save_mem)		/* Memory per node */
-			needed_mem = save_mem;
-		else {				/* Allocate all node memory */
-			needed_mem = avail_mem;
-			if (!test_only && (node_usage[i].alloc_memory > 0)) {
-				if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
-					info("%s: node %s has already alloc_memory=%"PRIu64". %pJ can't allocate all node memory",
-					     __func__,
-					     select_node_record[i].
-					     node_ptr->name,
-					     node_usage[i].alloc_memory,
-					     job_ptr);
-				error_code = SLURM_ERROR;
-				break;
+	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
+		save_mem = (save_mem &= (~MEM_PER_CPU));
+		nodes = bit_set_count(job_res->node_bitmap);
+
+
+		/* FVZ: same calculation on _eval_memory() */
+		if(job_ptr->details->num_tasks > 1){
+			min_cpus = job_ptr->details->num_tasks;
+			if(job_ptr->details->ntasks_per_node) {
+				min_cpus = nodes;
+				save_mem*=job_ptr->details->ntasks_per_node;
 			}
+			debug5("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested and using tasks %u to calculate memory requirement.",__func__,job_ptr->job_id,min_cpus);
+		}
+		else{
+			min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+			debug5("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested but using min_cpus %u or nodes %u to calculate memory requirement.",__func__,job_ptr->job_id,job_ptr->details->min_cpus,nodes);
+		}
+
+		if(nodes == min_cpus) using_nodes = true;
+
+		rem = (min_cpus * save_mem);
+		
+		first = bit_ffs(job_res->node_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->node_bitmap);
+		else
+			last = first - 1;
+
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per cpu, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
+		for (i = first; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+			
+			avail = select_node_record[i].real_memory -
+											node_usage[i].alloc_memory;
+			
+			allocated = save_mem*job_res->cpus[idx]; //specified cpu
+
+			if(nodes == 1) allocated = save_mem*min_cpus; //specified num_task and all tasks are allocated 1 node
+
+			if(using_nodes) allocated = save_mem; //specified min_nodes so we treate as mem per node
+
+			if(rem > 0){
+				job_res->memory_allocated[idx] = allocated;			 
+				if(allocated >= avail){
+					job_res->memory_allocated[idx] = avail;
+					rem -=  avail;
+				}else{
+					mem_avail = true;	
+					if(rem <= allocated){
+						job_res->memory_allocated[idx] = rem;
+						rem = 0;
+					}
+					else
+						rem -= (allocated);	
+				}
+			}
+			else
+			{
+				job_res->memory_allocated[idx] = 0;
+			}
+			
+
+			debug5("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx]);
+			idx++;
+
+		}
+	} 
+	else if(save_mem){ /* memory is per-node */
+
+		rem = bit_set_count(job_res->node_bitmap) * save_mem;
+
+		first = bit_ffs(job_res->node_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->node_bitmap);
+		else
+			last = first - 1;
+		
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per node, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
+		for (i = first; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+
+			avail = select_node_record[i].real_memory -
+											node_usage[i].alloc_memory;
+			if((save_mem <= select_node_record[i].real_memory) && (save_mem <= avail)){
+				job_res->memory_allocated[idx] = save_mem;
+				rem -= save_mem;
+			}
+			else{
+				job_res->memory_allocated[idx] = avail;
+				rem -= avail;
+			}
+
+			allocated = (node_usage[i].alloc_memory+job_res->memory_allocated[idx]);
+			if(allocated < select_node_record[i].real_memory)
+				mem_avail = true;	
+
+			debug5("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx],node_usage[i].alloc_memory,avail,rem);
+			idx++;
+		}
+	}
+
+	if(rem && mem_avail){//we need memory and still has memory within the node
+		idx = 0;
+		for (i = first; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+			
+			allocated = (node_usage[i].alloc_memory+job_res->memory_allocated[idx]);
+			if(allocated < select_node_record[i].real_memory){
+				
+				if(((long)(rem - (select_node_record[i].real_memory - allocated))) <= 0){
+					job_res->memory_allocated[idx] += rem;
+					rem = 0;
+					debug5("FELIPPE: %s job_id %u in mem_avail if node %s node_usage %lu rem %lu",
+						__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,allocated,rem);
+					break;
+				}
+				job_res->memory_allocated[idx]+= (select_node_record[i].real_memory - allocated);
+				rem-= (select_node_record[i].real_memory - allocated);
+			}
+			debug5("FELIPPE: %s job_id %u in mem_avail if node %s node_usage %lu rem %lu",
+				__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,allocated,rem);
+			idx++;
+		}
+	}
+
+	/* FVZ: checking memory left on rem */
+	if (save_mem) {
+		uint64_t alloc = 0;
+		/* FVZ: Iterating over memory pool */
+		first = bit_ffs(job_res->memory_pool_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->memory_pool_bitmap);
+		else
+			last = first - 1;
+		idx = job_res->nhosts;
+		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_pool nodes memory left %lu bitmap range[first %d - last %d]",
+				__func__,job_ptr->job_id,rem,first,last);
+		for (i = first; i <= last; i++) {
+			if (!bit_test(job_res->memory_pool_bitmap, i))
+				continue;
+
+			alloc = select_node_record[i].real_memory -
+											node_usage[i].alloc_memory;
+			job_res->memory_allocated[idx] = alloc;
+			if(((long)(rem - alloc)) <= 0){
+				job_res->memory_allocated[idx] = rem;
+				rem = 0;
+			}
+			else
+				rem -= alloc;
+			debug5("FELIPPE: %s job_id %u [memory node %s idx %d memory_free %lu] rem %lu",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,idx,alloc,rem);
+			idx++;
+		}
+
+		if(rem){
+			debug5("FELIPPE: %s ERROR - something wen wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+					__func__,job_ptr->job_id,rem);
+		}
+
+	} else {	/* --mem=0, allocate job all memory on node */
+		debug5("FELIPPE: %s Filling in job resources for job_id %u when --mem=0",__func__,job_ptr->job_id);
+		uint64_t avail_mem, lowest_mem = 0;
+		first = bit_ffs(job_res->node_bitmap);
+		if (first != -1)
+			last  = bit_fls(job_res->node_bitmap);
+		else
+			last = first - 1;
+		for (i = first, j = 0; i <= last; i++) {
+			if (!bit_test(job_res->node_bitmap, i))
+				continue;
+			avail_mem = select_node_record[i].real_memory -
+				    select_node_record[i].mem_spec_limit;
 			if ((j == 0) || (lowest_mem > avail_mem))
 				lowest_mem = avail_mem;
+			job_res->memory_allocated[j++] = avail_mem;
 		}
-		if (!test_only && save_mem) {
-			if (node_usage[i].alloc_memory > avail_mem) {
-				error("%s: node %s memory is already overallocated (%"PRIu64" > %"PRIu64"). %pJ can't allocate any node memory",
-				      __func__,
-				      select_node_record[i].node_ptr->name,
-				      node_usage[i].alloc_memory, avail_mem,
-				      job_ptr);
-				error_code = SLURM_ERROR;
-				break;
-			}
-			avail_mem -= node_usage[i].alloc_memory;
-		}
-		if (needed_mem > avail_mem) {
-			if (select_debug_flags & DEBUG_FLAG_SELECT_TYPE)
-				info("%s: %pJ would overallocate node %s memory (%"PRIu64" > %"PRIu64")",
-				     __func__, job_ptr,
-				     select_node_record[i].node_ptr->name,
-				     needed_mem,
-				     avail_mem);
-			error_code = SLURM_ERROR;
-			break;
-		}
-		job_res->memory_allocated[j] = needed_mem;
-		j++;
-	}
-	if (error_code == SLURM_ERROR)
-		free_job_resources(&job_ptr->job_resrcs);
-	else if (save_mem == 0)
 		details_ptr->pn_min_memory = lowest_mem;
-
+	}
 	return error_code;
 }

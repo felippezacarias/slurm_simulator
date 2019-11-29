@@ -50,12 +50,13 @@ int main(int argc, char* argv[])
 {
     int i, first_arrival = 0;
     int rec=1, idx=0, errs=0, share = 0;
-    int nrecs=200; // Number of records has to be entered here each time. This should be done differently.
+    int nrecs=100; // Number of records has to be entered here each time. This should be done differently.
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
     char const* const fileName = argv[1]; /* should check that argc > 1 */
     FILE* file = fopen(fileName, "r"); /* should check the result */
     char line[256];
     char *p;
+    int submit = 98;
 
 
     srand(time(NULL));   // Initialization,
@@ -71,18 +72,20 @@ int main(int argc, char* argv[])
         /* note that fgets don't strip the terminating \n, checking its
            presence would allow to handle lines longer that sizeof(line) */
         rec++;
-        if((rec>=90)&&(rec<=290)){
+        if((rec>=90)&&(rec<=190)){
             printf("%s", line);
             p = strtok(line, " ");
             i=0;
             while(p!=NULL){
                 if(i==0) {
                     job_arr[idx].job_id = atoi(p);
-                    printf("rec %d JOBID [%s]\n", rec, p); 
+                    printf("[%d] rec %d JOBID [%s]\n", idx+2, rec, p); 
                 }   
                 if(i==1) {
-                    if(first_arrival == 0)  first_arrival = atoi(p);
-                    job_arr[idx].submit = 100 + atoi(p) - first_arrival;
+                    //if(first_arrival == 0)  first_arrival = atoi(p);
+                    //job_arr[idx].submit = 100 + atoi(p) - first_arrival;
+                    submit += 2;
+                    job_arr[idx].submit = submit;
                     printf("Submit time: %s -> %ld\n", p,job_arr[idx].submit);
                 }  // why submit cannot start from 0? 
                 if(i==3) {
@@ -105,7 +108,7 @@ int main(int argc, char* argv[])
             }
 
             //Default not to set
-            //job_arr[idx].pn_mim_memory = 0;
+            job_arr[idx].pn_mim_memory = 0;
             job_arr[idx].shared = -1;
             job_arr[idx].tasks_per_node = 0;
             job_arr[idx].min_nodes = 0;
@@ -116,17 +119,19 @@ int main(int argc, char* argv[])
             switch (rand()%3)
             {
                 case 1: /*per cpu*/
-                    job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000 | MEM_PER_CPU;
+                    //job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000 | MEM_PER_CPU;
+                    job_arr[idx].pn_mim_memory = (int)(((float)rand()/(float)(RAND_MAX)) * 10000) | MEM_PER_CPU;
                     break;                
                 case 2: //per node
-                    job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000;
+                    //job_arr[idx].pn_mim_memory = ((rand()%10)+1)*1000;
+                    job_arr[idx].pn_mim_memory = (int)(((float)rand()/(float)(RAND_MAX)) * 10000);
                     break;
                 default:
                     break;
             }
             printf("pn_mim_memory: %llu\n", job_arr[idx].pn_mim_memory);
 
-            if((!(rand()%2)) && (share <= 50)){
+            if((!(rand()%2)) && (share <= 25)){
                 share++;
                 job_arr[idx].shared = 0; // exclusive
             }

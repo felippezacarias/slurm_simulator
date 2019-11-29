@@ -4101,7 +4101,7 @@ extern void excise_node_from_job(struct job_record *job_ptr,
 	bitstr_t *orig_bitmap;
 
 	orig_bitmap = bit_copy(job_ptr->node_bitmap);
-	make_node_idle(node_ptr, job_ptr); /* updates bitmap */
+	make_node_idle(node_ptr, job_ptr, false); /* updates bitmap */
 	xfree(job_ptr->nodes);
 	job_ptr->nodes = bitmap2node_name(job_ptr->node_bitmap);
 	i_first = bit_ffs(orig_bitmap);
@@ -6124,6 +6124,10 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 		track_script_flush_job(job_ptr->job_id);
 
 	info("%s: %pJ done", __func__, job_ptr);
+
+	debug5("FELIPPE: %s node_env_state after deallocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
+
 	return SLURM_SUCCESS;
 }
 
@@ -11595,7 +11599,7 @@ static void _realloc_nodes(struct job_record *job_ptr,
 		    bit_test(orig_node_bitmap, i))
 			continue;
 		node_ptr = node_record_table_ptr + i;
-		make_node_alloc(node_ptr, job_ptr);
+		make_node_alloc(node_ptr, job_ptr, i, false);
 	}
 }
 
@@ -15125,6 +15129,8 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 	if (job_ptr == NULL)
 		return true;
 
+	debug5("FELIPPE: %s job_id %u name %s",__func__,job_ptr->job_id,node_name);
+
 	trace_job(job_ptr, __func__, "enter");
 
 	/*
@@ -15199,7 +15205,18 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 					    slurmctld_conf.slurm_user_id);
 			}
 			/* Change job from completing to completed */
-			make_node_idle(node_ptr, job_ptr);
+			make_node_idle(node_ptr, job_ptr, false);
+		}
+
+		/* FVZ: Making memory nodes idle */
+		if(job_ptr->job_resrcs && job_ptr->job_resrcs->memory_pool_bitmap){
+			for (i = 0; i < node_record_count; i++) {
+				if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
+					continue;
+				node_ptr = &node_record_table_ptr[i];
+				
+				make_node_idle(node_ptr, job_ptr, true);
+			}
 		}
 	}
 #else
@@ -15211,12 +15228,15 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 	}
 	/* Change job from completing to completed */
 	node_ptr = find_node_record(node_name);
+	/* FVZ: Maybe here we also have to make memory nodes idle too */
 	if (node_ptr)
-		make_node_idle(node_ptr, job_ptr);
+		make_node_idle(node_ptr, job_ptr, false);
 #endif
 
 	step_epilog_complete(job_ptr, node_name);
 	/* nodes_completing is out of date, rebuild when next saved */
+	if(job_ptr->nodes_completing)
+		debug5("FELIPPE: %s job_id %u freeing nodes_completing %s",__func__,job_ptr->job_id,job_ptr->nodes_completing);
 	xfree(job_ptr->nodes_completing);
 	if (!IS_JOB_COMPLETING(job_ptr)) {	/* COMPLETED */
 		batch_requeue_fini(job_ptr);
