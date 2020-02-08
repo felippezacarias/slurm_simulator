@@ -809,6 +809,8 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 	List gres_list;
 	int i, i_first, i_last;
 
+	/*  FVZ: My min mem is 1, so nodes with 0 free mem are cleared, but they can have free cores
+	/ * that we can improve later on. */
 	min_mem = 1;
 	/*  FVZ: We don't need check mim memory, we just need check if
 	/ * the node have or does not have free memory.
@@ -4256,7 +4258,7 @@ alloc_job:
 		}
 
 		if(rem){
-			debug5("FELIPPE: %s ERROR - something wen wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+			debug5("FELIPPE: %s ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 					__func__,job_ptr->job_id,rem);
 		}
 

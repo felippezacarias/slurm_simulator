@@ -4801,6 +4801,9 @@ extern int slurm_free_msg_data(slurm_msg_type_t type, void *data)
 	case MESSAGE_SIM_HELPER_CYCLE:
 		slurm_free_sim_helper_msg(data);
 		break;
+	case REQUEST_UPDATE_SIM_JOB:
+		slurm_free_sim_job_msg(data);
+		break;
 	case REQUEST_SUSPEND:
 	case SRUN_REQUEST_SUSPEND:
 		slurm_free_suspend_msg(data);

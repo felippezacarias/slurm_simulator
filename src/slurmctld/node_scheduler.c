@@ -3934,7 +3934,8 @@ static int _build_node_list(struct job_record *job_ptr,
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
 			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
 			part_total_mem_avail += (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
-			debug5("FELIPPE: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",__func__,config_ptr->nodes,config_ptr->real_memory,part_total_mem_avail);
+			debug5("FELIPPE: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",
+					__func__,config_ptr->nodes,config_ptr->real_memory,part_total_mem_avail);
 			FREE_NULL_BITMAP(config_nodes_part_bitmap);
 	}
 	list_iterator_destroy(config_iterator);

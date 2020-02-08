@@ -881,6 +881,14 @@ struct job_record {
 	uint32_t wait4switch; /* Maximum time to wait for minimum switches */
 	bool     best_switch; /* true=min number of switches met           */
 	time_t wait4switch_start; /* Time started waiting for switch       */
+
+	uint32_t maxrss;	/* */
+    uint32_t memreq;	/* */
+    double speed;		/* */
+    double time_elapsed; /* */
+    double time_left;	/* */
+	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
+    List job_share;      /*Nishtala: list of jobs running in the same node*/
 };
 
 /* Job dependency specification, used in "depend_list" within job_record */
@@ -2785,5 +2793,14 @@ extern void check_reboot_nodes();
  * IN ignore_time - If set, ignore the warn time and just send it.
  */
 extern void send_job_warn_signal(struct job_record *job_ptr, bool ignore_time);
+
+/*
+ * Calculate and update the job speed, time_left, time_elapsed and time_delta 
+ * when job executes sharing memory
+ * 
+ * IN job_ptr          - job to calc speed up
+ */
+extern int _check_job_status(struct job_record *job_ptr, bool completing); 
+
 
 #endif /* !_HAVE_SLURMCTLD_H */
