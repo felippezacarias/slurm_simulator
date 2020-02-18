@@ -530,6 +530,7 @@ generateJob(job_trace_t* jobd) {
 	if(jobd->min_cpus) dmesg.min_cpus = jobd->min_cpus;
 	if(jobd->pn_mim_memory) dmesg.pn_min_memory = jobd->pn_mim_memory;
 
+	dmesg.sim_executable = jobd->sim_executable;
 
 	/* Need something for environment--Should make this een more generic! */
 	dmesg.environment  = (char**)malloc(sizeof(char*)*2);

@@ -83,6 +83,7 @@
 #include "src/common/tres_frequency.h"
 #include "src/common/xassert.h"
 #include "src/common/xstring.h"
+#include "src/common/lrmodel.h"
 
 #include "src/slurmctld/acct_policy.h"
 #include "src/slurmctld/agent.h"
@@ -621,6 +622,7 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
     job_ptr->time_elapsed = 0;
     job_ptr->time_left = 0;
 	job_ptr->time_delta = 0;
+	job_ptr->sim_executable = 0;
 	job_ptr->job_share = list_create(NULL);
 
 	(void) list_append(job_list, job_ptr);
@@ -4224,6 +4226,9 @@ void dump_job_desc(job_desc_msg_t * job_specs)
 
 	debug3("   req_nodes=%s exc_nodes=%s",
 	       job_specs->req_nodes, job_specs->exc_nodes);
+
+	debug3("   sim_executable=%u",
+	       job_specs->sim_executable);
 
 	time_limit = (job_specs->time_limit != NO_VAL) ?
 		(long) job_specs->time_limit : -1L;
@@ -8114,6 +8119,8 @@ _copy_job_desc_to_job_record(job_desc_msg_t * job_desc,
 	job_ptr->restart_cnt = job_desc->restart_cnt;
 	job_ptr->comment    = xstrdup(job_desc->comment);
 	job_ptr->admin_comment = xstrdup(job_desc->admin_comment);
+
+	job_ptr->sim_executable = job_desc->sim_executable;
 
 	if (job_desc->kill_on_node_fail != NO_VAL16)
 		job_ptr->kill_on_node_fail = job_desc->kill_on_node_fail;
@@ -18637,8 +18644,14 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_msg_t   req_msg, resp_msg;
 	char* this_addr;
 	int rc = SLURM_SUCCESS;
+	double speedv;
 
 	debug5("FELIPPE: %s. job_id=%u sending update rpc time_left %e.\n", __func__,job_ptr->job_id,job_ptr->time_left);
+	
+	speedv = speed(1,15000.0,90);
+	debug5("FELIPPE: %s. job_id=%u test model speed %.5f\n", __func__,speedv);
+
+
 
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);

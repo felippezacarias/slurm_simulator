@@ -28,6 +28,7 @@ typedef struct job_trace {
     int  min_nodes;
     int  min_cpus;
     int  shared;
+    int  sim_executable;
     char reservation[MAX_RSVNAME];
     char dependency[MAX_DEPNAME];
     struct job_trace *next;
