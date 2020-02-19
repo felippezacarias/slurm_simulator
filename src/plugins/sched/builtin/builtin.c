@@ -66,6 +66,14 @@
 #include "src/slurmctld/slurmctld.h"
 #include "src/plugins/sched/builtin/builtin.h"
 
+#ifdef SLURM_SIMULATOR
+#include <fcntl.h>           /* For O_* constants */
+#include <sys/stat.h>        /* For mode constants */
+#include <semaphore.h>
+#include <pthread.h>
+#include "src/common/slurm_sim.h"
+#endif
+
 #ifndef BACKFILL_INTERVAL
 #  define BACKFILL_INTERVAL	30
 #endif
@@ -78,6 +86,11 @@ static bool config_flag = false;
 static int builtin_interval = BACKFILL_INTERVAL;
 static int max_sched_job_cnt = 50;
 static int sched_timeout = 0;
+
+#ifdef SLURM_SIMULATOR
+char SEM_NAME[] 	= "serversem";
+sem_t* mutexserver	= SEM_FAILED;
+#endif
 
 /*********************** local functions *********************/
 static void _compute_start_times(void);
@@ -95,6 +108,7 @@ extern void stop_builtin_agent(void)
 
 static void _my_sleep(int secs)
 {
+#ifndef SLURM_SIMULATOR
 	struct timespec ts = {0, 0};
 	struct timeval now;
 
@@ -105,6 +119,16 @@ static void _my_sleep(int secs)
 	if (!stop_builtin)
 		slurm_cond_timedwait(&term_cond, &term_lock, &ts);
 	slurm_mutex_unlock(&term_lock);
+
+       /* For simulation purposes such a polite termintarion process is not necessary although it could be
+          implemented as sleep wrapper does. By now just using a simple call to sleep here. */
+#else
+	/* Since the backfill and time controling loops are synced, we cannot make
+	 * the sleep depend on "faked time", because it does not change while the
+	 * backfilling is running... and _my_sleep is called form in there.
+	 */
+	usleep(10);
+#endif
 }
 
 static void _load_config(void)
@@ -242,6 +266,39 @@ extern void builtin_reconfig(void)
 	config_flag = true;
 }
 
+
+#ifdef SLURM_SIMULATOR
+
+char BF_SEM_NAME[] = "bf_sem";
+char BF_DONE_SEM_NAME[] = "bf_done_sem";
+sem_t* mutex_bf_pg=NULL;
+sem_t* mutex_bf_done_pg=NULL;
+
+int open_BF_sync_semaphore_pg() {
+	mutex_bf_pg = sem_open(BF_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf_pg == SEM_FAILED) {
+		error("unable to create backfill semaphore");
+		sem_unlink(BF_SEM_NAME);
+		return -1;
+	}
+
+	mutex_bf_done_pg = sem_open(BF_DONE_SEM_NAME, O_CREAT, 0644, 0);
+	if(mutex_bf_done_pg == SEM_FAILED) {
+		error("unable to create backfill done semaphore");
+		sem_unlink(BF_DONE_SEM_NAME);
+		return -1;
+	}
+
+	return 0;
+}
+
+void close_BF_sync_semaphore() {
+	if(mutex_bf_pg != SEM_FAILED) sem_close(mutex_bf_pg);
+	if(mutex_bf_done_pg != SEM_FAILED) sem_close(mutex_bf_done_pg);
+	debug("backfill_agent: Closing BF sync sempahore");
+}
+#endif
+
 /* builtin_agent - detached thread periodically when pending jobs can start */
 extern void *builtin_agent(void *args)
 {
@@ -254,10 +311,22 @@ extern void *builtin_agent(void *args)
 
 	_load_config();
 	last_sched_time = time(NULL);
+#ifdef SLURM_SIMULATOR
+	open_BF_sync_semaphore_pg();
+#endif
 	while (!stop_builtin) {
+#ifdef SLURM_SIMULATOR
+		sem_wait(mutex_bf_pg);
+#endif
+#ifndef SLURM_SIMULATOR
 		_my_sleep(builtin_interval);
-		if (stop_builtin)
+#endif
+		if (stop_builtin){
+			#ifdef SLURM_SIMULATOR
+			sem_post(mutex_bf_done_pg);
+			#endif
 			break;
+		}
 		if (config_flag) {
 			config_flag = false;
 			_load_config();
@@ -272,6 +341,12 @@ extern void *builtin_agent(void *args)
 		last_sched_time = time(NULL);
 		(void) bb_g_job_try_stage_in();
 		unlock_slurmctld(all_locks);
+#ifdef SLURM_SIMULATOR
+		sem_post(mutex_bf_done_pg);
+#endif
 	}
+#ifdef SLURM_SIMULATOR
+	close_BF_sync_semaphore();
+#endif	
 	return NULL;
 }

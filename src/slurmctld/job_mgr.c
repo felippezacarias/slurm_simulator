@@ -18658,6 +18658,7 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_set_addr(&req_msg.address, (uint16_t)slurm_get_slurmd_port(),
 						this_addr);
 
+	/*FVZ: Uncomment to actually send the msg and update job info */
 	//if (slurm_send_recv_node_msg(&req_msg, &resp_msg, 500000) < 0) {
 	//	printf("check_events_trace: error in slurm_send_recv_node_msg\n");
 	//	return SLURM_ERROR;
@@ -18687,7 +18688,7 @@ double _compute_scale(struct job_record *job_ptr){
 	if(job_cnt) scale /= job_cnt;
 	else scale = 1.0;
 
-	debug5("FELIPPE: %s. job_id=%u model speed %.5f\n",
+	debug5("FELIPPE: %s. job_id=%u model speed %.5f",
 			__func__,job_ptr->job_id,scale);
 
 	return scale;
@@ -18725,6 +18726,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
      * job_scan_ptr->job_share will impact job_scan_ptr->speed, time_elapsed and time_left
      * job_ptr->job_share will impact job_ptr->speed, time_elapsed and time_left
      */
+
+	/* FVZ: TODO: Error! it also must consider the memory pool */
 	bool overlap = false;
 	if(!completing){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
