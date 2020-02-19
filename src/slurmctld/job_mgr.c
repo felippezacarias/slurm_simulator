@@ -271,7 +271,7 @@ static int  _write_data_array_to_file(char *file_name, char **data,
 				      uint32_t size);
 static void _xmit_new_end_time(struct job_record *job_ptr);
 static int _update_sim_job_status(struct job_record *job_ptr);
-double _compute_scale(int job_cnt, bool completing);
+double _compute_scale(struct job_record *job_ptr);
 
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
@@ -6145,7 +6145,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 
 	info("%s: %pJ done", __func__, job_ptr);
 
-	debug5("FELIPPE: %s node_env_state after deallocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+	debug5("FELIPPE: %s node_env_state after deallocate job_id %d idle_nodes %u share_nodes %u avail_nodes %u",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 	return SLURM_SUCCESS;
@@ -18644,15 +18644,9 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_msg_t   req_msg, resp_msg;
 	char* this_addr;
 	int rc = SLURM_SUCCESS;
-	double speedv;
 
-	debug5("FELIPPE: %s. job_id=%u sending update rpc time_left %e.\n", __func__,job_ptr->job_id,job_ptr->time_left);
+	debug5("FELIPPE: %s sending update rpc time_left %e to job_id=%u", __func__,job_ptr->time_left,job_ptr->job_id);
 	
-	speedv = speed(1,15000.0,90);
-	debug5("FELIPPE: %s. job_id=%u test model speed %.5f\n", __func__,speedv);
-
-
-
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);
 	req.job_id       = job_ptr->job_id;
@@ -18675,13 +18669,26 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 
 }
 
-double _compute_scale(int job_cnt, bool completing){
-	double scale = 1.0;
+double _compute_scale(struct job_record *job_ptr){
+	ListIterator job_iterator;
+	struct job_record *job_tmp;
+	double scale = 0.0;
+	uint32_t jobid;
+	int job_cnt = list_count(job_ptr->job_share);
 
-	/* FVz: If it is completing the new speed (in this case) must be count_job-1 because of the completing job */
-	if(completing) scale = (1.0/(job_cnt));
-	/* FVZ: If it is not completing then the speed should account for this job and the others in contention */
-	else scale = (1.0/(job_cnt+1.0));
+	job_iterator = list_iterator_create(job_ptr->job_share);
+	while ((jobid = (uint32_t) list_next(job_iterator))) {
+		job_tmp = find_job_record(jobid);
+		//BW (15000.0) and rwratio (90) is related to job_tmp
+		scale += speed(job_ptr->sim_executable,15000.0,90);		
+	}
+	list_iterator_destroy(job_iterator);
+
+	if(job_cnt) scale /= job_cnt;
+	else scale = 1.0;
+
+	debug5("FELIPPE: %s. job_id=%u model speed %.5f\n",
+			__func__,job_ptr->job_id,scale);
 
 	return scale;
 }
@@ -18689,7 +18696,6 @@ double _compute_scale(int job_cnt, bool completing){
 
 //Nishtala: scheduling function
 extern int _check_job_status(struct job_record *job_ptr, bool completing) {
-    info("FELIPPE: Entered %s\n",__func__);
     /*
      * Need to call this function periodically when the job starts and ends.
      * job_ptr -> current job
@@ -18701,9 +18707,9 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
     ListIterator job_iterator, scan_iterator;
     struct job_record *job_scan_ptr;
     job_iterator = list_iterator_create(job_list);
-    int count_job_ptr=0; int count_job_scan_ptr=0;
+    int count_job_scan_ptr = 0;
 	double time_delta = 0.0, scale;
-	uint32_t jobid,scan_jobid;
+	uint32_t jobid, scan_jobid;
 	time_t now = time(NULL);
     /*TODO
     1. "How much" of the app has finished?
@@ -18734,64 +18740,63 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 		}
 	}
 	else
-	{
-		count_job_ptr = list_count(job_ptr->job_share);
-		if(count_job_ptr) overlap = true;
+	{		
+		if(list_count(job_ptr->job_share)) 
+			overlap = true;
 	}
 	list_iterator_destroy(job_iterator);
-
 
 	//IF it is 0, then it is first time
 	if(job_ptr->time_delta) time_delta = difftime(now,job_ptr->time_delta);
 
+	job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
+
 	if (!overlap) {
-		debug5("FELIPPE: %s. job_id=%u in isolation=%d completing=%d\n", __func__,job_ptr->job_id, overlap,completing);
-		job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
 		job_ptr->speed        = 1.0/job_ptr->time_limit;
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
-		debug5("FELIPPE %s. job_id=%u in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e\n", __func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta);
+		debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e completing=%d",
+				__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,completing);
 	} else {
-		count_job_ptr = list_count(job_ptr->job_share);
 
-		debug5("FELIPPE: %s. job_id=%u sharing_node=%d count=%d completing=%d\n", __func__,job_ptr->job_id, overlap, count_job_ptr,completing);
-
-
-		job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
-		/* FVZ: (1/count_job_ptr) is fixed by now, however the slowdown factor must be calculated somehow */
-		scale = _compute_scale(count_job_ptr, completing);
+		scale = _compute_scale(job_ptr);
 
 		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
-		debug5("FELIPPE: %s. CURRENT job_id=%u not in isolation, elapsed=%e, speed=%e, time_left=%e time_delta=%e time_limit=%u scale=%e\n",  __func__, job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale);
+		debug5("FELIPPE: %s job_id=%u [sharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d",
+				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
+				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale,completing);
 
-		/* FVZ: It is not completing because the slurmd daemon has the finish time iqual time_limit, however as the job will run in contention
-		/* we need to update the expect time to finish with the new time_left */
+		/* FVZ: If it is not completing the job will run in contention
+		/* we need to update the simulator's expect time to finish with the new time_left */
 		if(!completing) _update_sim_job_status(job_ptr);
 
 	    job_iterator = list_iterator_create(job_ptr->job_share);
 		while ((jobid = (uint32_t) list_next(job_iterator))) {
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
-			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [not in isolation]\n", __func__,job_ptr->job_id,jobid);
+			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [sharing_nodes]", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
 			time_delta = difftime(now,job_scan_ptr->time_delta);
 			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
-			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
 
-			scale = _compute_scale(count_job_scan_ptr, completing);
-
-			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale));
-
-			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
-			job_scan_ptr->time_delta = now;
 			scan_iterator = list_iterator_create(job_scan_ptr->job_share);
 			if(completing)
 				while((scan_jobid = (uint32_t) list_next(scan_iterator))){
 					if(scan_jobid == job_ptr->job_id) list_remove(scan_iterator);
 				}
 			list_iterator_destroy(scan_iterator);
+
+			scale = _compute_scale(job_scan_ptr);
+
+			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale));
+
+			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
+			job_scan_ptr->time_delta = now;
+
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s. job_id=%u not in isolation being updated, elapsed=%e, speed=%e, time_left=%e time_delta=%e completing=%d list_count=%d time_limit=%u scale=%e\n", __func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed, job_scan_ptr->time_left,time_delta,completing,count_job_scan_ptr,job_scan_ptr->time_limit,scale);
+			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d list_count=%d",
+					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
+					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_limit,scale,completing,count_job_scan_ptr);
 		}
 		list_iterator_destroy(job_iterator);
 	}

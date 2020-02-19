@@ -2,7 +2,8 @@
 
 double speed(int app_index,int interf_bw,int interf_rwratio){
 
-    int N = 5; 
+    int N = 5;
+    int id_; 
     double pred50,pred100,w_100,speed;
     double x100[5];
     double y100[5];
@@ -18,7 +19,12 @@ double speed(int app_index,int interf_bw,int interf_rwratio){
     double m100 = 0.0; // Slope
     double b100 = 0.0; //Intercept
 
-    read_sensitivity_file(app_index,x50,y50,x100,y100);
+    /* TODO: remove later. simple hack to work with 
+     * the apps in hand */
+    id_ = app_index%44;
+    if(id_ == 0) id_ = 44;
+
+    read_sensitivity_file(id_,x50,y50,x100,y100);
 
     //Read bw curves
     //Create linear function of app/rwratio
