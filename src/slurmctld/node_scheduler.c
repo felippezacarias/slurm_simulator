@@ -3157,7 +3157,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		}
 	}
 
-	debug5("FELIPPE: %s node_env_state before allocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+	debug5("FELIPPE: %s node_env_state before allocate job_id %u idle_nodes %lu share_nodes %lu avail_nodes %lu",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 
@@ -3166,7 +3166,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	build_node_details(job_ptr, true);
 	rebuild_job_part_list(job_ptr);
 
-	debug5("FELIPPE: %s node_env_state after allocate job_id %d idle_nodes %lu share_nodes %lu avail_nodes %lu",
+	debug5("FELIPPE: %s node_env_state after allocate job_id %u idle_nodes %lu share_nodes %lu avail_nodes %lu",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 
@@ -5032,38 +5032,36 @@ extern void re_kill_job(struct job_record *job_ptr)
 #ifndef SLURM_SIMULATOR
 	agent_queue_request(agent_args);
 #else
+	{
+		slurm_msg_t msg, resp;
+		char *nodename;
 
-        {
-                slurm_msg_t msg, resp;
-                char *nodename;
+		slurm_msg_t_init(&msg);
+		msg.msg_type = REQUEST_TERMINATE_JOB;
+		msg.data = kill_job;
 
-                slurm_msg_t_init(&msg);
-                msg.msg_type = REQUEST_TERMINATE_JOB;
-                msg.data = kill_job;
+		nodename = hostlist_shift(agent_args->hostlist);
+		info("SIM: sending message type REQUEST_TERMINATE_JOB (%u) to %s\n", kill_job->job_id, nodename);
 
-                nodename = hostlist_shift(agent_args->hostlist);
-                info("SIM: sending message type REQUEST_TERMINATE_JOB (%d) to %s\n", kill_job->job_id, nodename);
+		if(slurm_conf_get_addr(nodename, &msg.address) == SLURM_ERROR) {
+						error("SIM: "
+								"can't find address for host %s, "
+								"check slurm.conf",
+								nodename);
+		}
+		if (slurm_send_recv_node_msg(&msg, &resp, 5000000) != SLURM_SUCCESS) {
+						error("SIM: slurm_send_only_node_msg failed\n");
+		}
 
-                if(slurm_conf_get_addr(nodename, &msg.address) == SLURM_ERROR) {
-                                error("SIM: "
-                                      "can't find address for host %s, "
-                                      "check slurm.conf",
-                                      nodename);
-                }
-                if (slurm_send_recv_node_msg(&msg, &resp, 5000000) != SLURM_SUCCESS) {
-                                error("SIM: slurm_send_only_node_msg failed\n");
-                }
+		info("SIM: REQUEST_TERMINATE_JOB (%u) to %s WAS SENT\n", kill_job->job_id, nodename);
+		/* Let's free memory allocated */
 
-                info("SIM: REQUEST_TERMINATE_JOB (%d) to %s WAS SENT\n", kill_job->job_id, nodename);
-                /* Let's free memory allocated */
-
-                xfree(kill_job->nodes);
-                select_g_select_jobinfo_free(kill_job->select_jobinfo);
-                xfree(kill_job);
-                hostlist_destroy(agent_args->hostlist);
-                xfree(agent_args);
-        }
-
+		xfree(kill_job->nodes);
+		select_g_select_jobinfo_free(kill_job->select_jobinfo);
+		xfree(kill_job);
+		hostlist_destroy(agent_args->hostlist);
+		xfree(agent_args);
+	}
 #endif
 	return;
 }

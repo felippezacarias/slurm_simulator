@@ -6145,7 +6145,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 
 	info("%s: %pJ done", __func__, job_ptr);
 
-	debug5("FELIPPE: %s node_env_state after deallocate job_id %d idle_nodes %u share_nodes %u avail_nodes %u",
+	debug5("FELIPPE: %s node_env_state after deallocate job_id %u idle_nodes %u share_nodes %u avail_nodes %u",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 	return SLURM_SUCCESS;
@@ -18680,7 +18680,7 @@ double _compute_scale(struct job_record *job_ptr){
 	job_iterator = list_iterator_create(job_ptr->job_share);
 	while ((jobid = (uint32_t) list_next(job_iterator))) {
 		job_tmp = find_job_record(jobid);
-		//BW (15000.0) and rwratio (90) is related to job_tmp
+		//BW (15000.0) and rwratio (90) are related to job_tmp
 		scale += speed(job_ptr->sim_executable,15000.0,90);		
 	}
 	list_iterator_destroy(job_iterator);

@@ -2154,6 +2154,8 @@ static void *_slurmctld_background(void *no_data)
 			unlock_slurmctld(node_write_lock2);
 		}
 
+/* FVZ: we check time_limit on slurmd _simulator_helper func */
+#ifndef SLURM_SIMULATOR
 		if (difftime(now, last_timelimit_time) >= PERIODIC_TIMEOUT) {
 			lock_slurmctld(job_write_lock);
 			now = time(NULL);
@@ -2168,6 +2170,7 @@ static void *_slurmctld_background(void *no_data)
 			check_reboot_nodes();
 			unlock_slurmctld(node_write_lock);
 		}
+#endif
 
 		if (slurmctld_conf.health_check_interval &&
 		    (difftime(now, last_health_check_time) >=

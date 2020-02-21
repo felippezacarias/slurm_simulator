@@ -324,7 +324,7 @@ perform_global_sync() {
 void perform_global_sync_end()
 {
         sem_wait(mutexserver);
-        debug3("Finished iteration of slurmd");
+        debug3("Finished iteration of slurmd\n");
         *global_sync_flag += 1;
         sem_post(mutexserver);
 }
@@ -567,8 +567,8 @@ _registration_engine(void *arg)
 	_decrement_thd_count();
 	debug("FINISH _registration_engine call.. registration time %ld\n", sent_reg_time);
 #ifdef SLURM_SIMULATOR
-        debug("call signal_sim_mgr..");
-        //signal_sim_mgr();
+	debug("call signal_sim_mgr..");
+	//signal_sim_mgr();
 	notify_sim_mgr(); /*** ANA: Replacing signals for slurmd registration */
 #endif
 	//pthread_exit(NULL);
@@ -628,7 +628,7 @@ _send_complete_batch_script_msg(uint32_t jobid, int err, int status)
        req_msg.msg_type= REQUEST_COMPLETE_BATCH_SCRIPT;
        req_msg.data    = &req;
 
-       info("SIM: sending REQUEST_COMPLETE_BATCH_SCRIPT");
+	   info("SIM: Sending REQUEST_COMPLETE_BATCH_SCRIPT for job %u", event_jid);
 
        /* Note: these log messages don't go to slurmd.log from here */
        for (i=0; i<=5; i++) {
@@ -718,33 +718,33 @@ _simulator_helper(void *arg)
 		info("now: %ld last: %ld diff: %ld", now, last, now - last);
 		pthread_mutex_lock(&simulator_mutex);
 		if(head_simulator_event)
-			info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d\n", now, head_simulator_event->when, total_sim_events);
+			info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d", 
+					now, head_simulator_event->when, total_sim_events);
 		else
-			info("Simulator Helper cycle: %ld, No events!!!\n", now);
+			info("Simulator Helper cycle: %ld, No events!!!", now);
 
-                while((head_simulator_event) && (now >= head_simulator_event->when)){
-                        volatile simulator_event_t *aux;
-                        int event_jid;
-                        event_jid = head_simulator_event->job_id;
-                        aux = head_simulator_event;
-                        head_simulator_event = head_simulator_event->next;
-                        aux->next = head_sim_completed_jobs;
-                        head_sim_completed_jobs = aux;
-                        total_sim_events--;
-                        info("SIM: Sending JOB_COMPLETE_BATCH_SCRIPT for job %d", event_jid);
-                        pthread_mutex_unlock(&simulator_mutex);
-                        if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
+		while((head_simulator_event) && (now >= head_simulator_event->when)){
+			volatile simulator_event_t *aux;
+			int event_jid;
+			event_jid = head_simulator_event->job_id;
+			aux = head_simulator_event;
+			head_simulator_event = head_simulator_event->next;
+			aux->next = head_sim_completed_jobs;
+			head_sim_completed_jobs = aux;
+			total_sim_events--;                        
+			pthread_mutex_unlock(&simulator_mutex);
+			if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
 				pthread_mutex_lock(&simulator_mutex);
-                        	waiting_epilog_msgs++;
-                        	info("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d SENT", event_jid);
-                        	jobs_ended++;
+				waiting_epilog_msgs++;
+				info("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %u SENT", event_jid);
+				jobs_ended++;
 			} else {
-				error("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d NOT SENT", event_jid);
+				error("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %u NOT SENT", event_jid);
 				pthread_exit(0);
-        			_decrement_thd_count();
-        			return NULL;
+				_decrement_thd_count();
+				return NULL;
 			} 
-                }
+		}
 		pthread_mutex_unlock(&simulator_mutex);
 		last = now;
 		if(jobs_ended){

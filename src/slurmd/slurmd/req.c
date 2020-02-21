@@ -539,7 +539,7 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 		temp_ptr = temp_ptr->next;
 	}
 	if(!temp_ptr){
-		info("SIM: No job_id event matching this job_id %d\n", req->job_id);
+		info("SIM: No job_id event matching this job_id %u\n", req->job_id);
 		pthread_mutex_unlock(&simulator_mutex);
 		return -1;
 	}
@@ -551,11 +551,11 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 
 	total_sim_events++;
 	if(!head_simulator_event){
-		info("SIM: Adding new event for job %d when list is empty for future time %ld!", new_event->job_id, new_event->when);
+		info("SIM: Adding new event for job %u when list is empty for future time %ld!", new_event->job_id, new_event->when);
 		head_simulator_event = new_event;
 	}else{
 		volatile simulator_event_t *node_temp = head_simulator_event;
-		info("SIM: Adding new event for job %d in the event listi for future time %ld", new_event->job_id, new_event->when);
+		info("SIM: Adding new event for job %u in the event listi for future time %ld", new_event->job_id, new_event->when);
 
 		if(head_simulator_event->when > new_event->when){
 			new_event->next = head_simulator_event;
@@ -593,7 +593,7 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
 	hostlist_t hl, hlmem;
 	char *node_name;
 
-	info("SIM: Inside of the simulator_rpc_batch_job for %d\n", req->job_id);
+	info("SIM: Inside of the simulator_rpc_batch_job for %u\n", req->job_id);
 	hl = hostlist_create(req->nodes);
 	while ((node_name = hostlist_shift(hl))) {
 		info("SIM: nodelist %s\n", node_name);
@@ -607,7 +607,7 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
 	hostlist_destroy(hlmem);
 
 	if (slurm_send_rc_msg(msg, SLURM_SUCCESS) < 1) {
-		error("SIM: Could not confirm batch launch for job %d\n", req->job_id);
+		error("SIM: Could not confirm batch launch for job %u\n", req->job_id);
 	}
 
 	simulator_add_future_event(req);
@@ -3738,13 +3738,13 @@ simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
 
 	/* First sending an OK to the controller */
 
-	info("simulator_rpc_terminate_job, jobid = %d", req_kill->job_id);
+	info("simulator_rpc_terminate_job, jobid = %u", req_kill->job_id);
 
 	debug5("FELIPPE: %s jobid %u memory_nodes %s ",__func__,req_kill->job_id,req_kill->memory_nodes);
 
 	slurm_send_rc_msg(rec_msg, SLURM_SUCCESS);
 
-	info("simulator_rpc_terminate_job, jobid = %d ready for sending message", req_kill->job_id);
+	info("simulator_rpc_terminate_job, jobid = %u ready for sending message", req_kill->job_id);
 
 	pthread_mutex_lock(&simulator_mutex);
 
@@ -3756,7 +3756,7 @@ simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
 
 		temp = head_sim_completed_jobs;
 		if(!temp){
-			info("SIM: Error, no event found for completed job %d T1\n", req_kill->job_id);
+			info("SIM: Error, no event found for completed jobid %u - head_sim_completed_jobs is empty", req_kill->job_id);
 			pthread_mutex_unlock(&simulator_mutex);
 			return;
 		}
@@ -3772,7 +3772,7 @@ simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
 			event_sim=temp;
 			prev->next=temp->next;
 		} else {
-			info("SIM: Error, no event found for completed job %d T2\n", req_kill->job_id);
+			info("SIM: Error, no event found for completed jobid %u", req_kill->job_id);
 			pthread_mutex_unlock(&simulator_mutex);
 			return;
 		}
@@ -3785,7 +3785,7 @@ simulator_rpc_terminate_job(slurm_msg_t *rec_msg)
 	/* With FRONTEND just one epilog complete message is needed */
 	node_name = hostlist_shift(hl);
 
-	info("SIM: Sending epilog complete message for job %d node %s", req_kill->job_id, node_name);
+	info("SIM: Sending epilog complete message for jobid %u node %s", req_kill->job_id, node_name);
 	slurm_msg_t_init(&msg);
 
 	req.job_id      = req_kill->job_id;
@@ -6744,7 +6744,7 @@ static void _wait_for_job_running_prolog(uint32_t job_id)
 	struct timespec ts = {0, 0};
 	struct timeval now;
 
-	debug("Waiting for job %d's prolog to complete", job_id);
+	debug("Waiting for job %u's prolog to complete", job_id);
 
 	while (_prolog_is_running (job_id)) {
 
@@ -6758,7 +6758,7 @@ static void _wait_for_job_running_prolog(uint32_t job_id)
 		slurm_mutex_unlock(&dummy_lock);
 	}
 
-	debug("Finished wait for job %d's prolog to complete", job_id);
+	debug("Finished wait for job %u's prolog to complete", job_id);
 }
 
 
