@@ -1344,6 +1344,7 @@ typedef struct slurm_ctl_conf slurm_ctl_conf_info_msg_t;
 typedef struct sim_job_msg {
         uint32_t job_id;
         uint32_t duration;
+		uint32_t wclimit;
 } sim_job_msg_t;
 
 typedef struct sim_helper_msg {

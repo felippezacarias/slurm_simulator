@@ -2483,7 +2483,7 @@ extern void launch_job(struct job_record *job_ptr)
                 slurm_msg_t_init(&msg);
                 msg.msg_type = REQUEST_BATCH_JOB_LAUNCH;
                 msg.data = launch_msg_ptr;
-                info("SIM: sending message type REQUEST_BATCH_JOB_LAUNCH to %s\n", job_ptr->batch_host);
+                info("SIM: sending message type REQUEST_BATCH_JOB_LAUNCH to %s", job_ptr->batch_host);
 
                 if(slurm_conf_get_addr(job_ptr->batch_host, &msg.address) == SLURM_ERROR) {
                                 error("SIM: "

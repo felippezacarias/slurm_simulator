@@ -478,9 +478,10 @@ static char ** _create_environment (struct jobcomp_info *job)
 	if (job->std_err)
 		_env_append (&env, "STDERR",     job->std_err);
 	_env_append (&env, "BACKFILLED", (job->backfilled ? "yes" : "no"));
-	mins2time_str(job->limit, time_str, sizeof(time_str));
-	_env_append (&env, "LIMIT", time_str);
+	//mins2time_str(job->limit, time_str, sizeof(time_str));
+	//_env_append (&env, "LIMIT", time_str);
 	/* FVZ: appending new info */
+	_env_append_fmt (&env, "LIMIT", "%u", job->limit);	
 	_env_append (&env, "MEMORYNODES", job->memory_nodes);
 	_env_append_fmt (&env, "MEMORYNODESCNT","%u", job->mnodes);
 	_env_append_fmt (&env, "REQNUMTASKS","%u", job->num_tasks);

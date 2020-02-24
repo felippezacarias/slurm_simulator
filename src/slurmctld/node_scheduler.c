@@ -3157,7 +3157,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		}
 	}
 
-	debug5("FELIPPE: %s node_env_state before allocate job_id %u idle_nodes %lu share_nodes %lu avail_nodes %lu",
+	debug5("FELIPPE: %s node_env_state before allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 
@@ -3166,7 +3166,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	build_node_details(job_ptr, true);
 	rebuild_job_part_list(job_ptr);
 
-	debug5("FELIPPE: %s node_env_state after allocate job_id %u idle_nodes %lu share_nodes %lu avail_nodes %lu",
+	debug5("FELIPPE: %s node_env_state after allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 

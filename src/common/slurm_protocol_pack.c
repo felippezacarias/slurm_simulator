@@ -13163,6 +13163,7 @@ static void _pack_sim_job_msg(sim_job_msg_t *msg, Buf buffer)
 {
        xassert ( msg != NULL );
 
+       pack32((uint32_t)msg->wclimit, buffer ) ;
        pack32((uint32_t)msg->duration, buffer ) ;
        pack32((uint32_t)msg->job_id,  buffer ) ;
 }
@@ -13345,6 +13346,7 @@ static int  _unpack_sim_job_msg(sim_job_msg_t **msg_ptr, Buf buffer)
        msg = xmalloc ( sizeof (sim_job_msg_t) );
        *msg_ptr = msg ;
 
+       safe_unpack32(&msg->wclimit ,      buffer ) ;
        safe_unpack32(&msg->duration ,      buffer ) ;
        safe_unpack32(&msg->job_id  , buffer ) ;
        return SLURM_SUCCESS;

@@ -235,6 +235,7 @@ extern int       sim_open_sem(char * sem_name, sem_t ** mutex_sync,
                                         int max_attempts);
 extern void      sim_perform_slurmd_register(char * sem_name,
                                         sem_t ** mutex_sync);
+simulator_event_t *_finished_sim_jobs(time_t now);
 /********************************************************************/
 #endif
 static uint64_t  _parse_msg_aggr_params(int type, char *params);
@@ -628,7 +629,7 @@ _send_complete_batch_script_msg(uint32_t jobid, int err, int status)
        req_msg.msg_type= REQUEST_COMPLETE_BATCH_SCRIPT;
        req_msg.data    = &req;
 
-	   info("SIM: Sending REQUEST_COMPLETE_BATCH_SCRIPT for job %u", event_jid);
+	   info("SIM: Sending REQUEST_COMPLETE_BATCH_SCRIPT for jobid %u", jobid);
 
        /* Note: these log messages don't go to slurmd.log from here */
        for (i=0; i<=5; i++) {
@@ -698,11 +699,34 @@ _send_sim_helper_cycle_msg(uint32_t jobs_count)
        return SLURM_SUCCESS;
 }
 
+simulator_event_t *_finished_sim_jobs(time_t now){
+	volatile simulator_event_t *aux = NULL, *tmp = NULL;
+	aux = head_simulator_event;
+	tmp = aux;
+	while(aux){
+		if((now >= aux->when) ||
+			(now >= aux->hardwhen)){
+				break;
+			}
+			tmp = aux;
+			aux = aux->next;
+	}
+
+	/* FVZ: Once inside this function, means head_simulator_event != NULL */
+	if (aux == head_simulator_event) 
+		head_simulator_event = head_simulator_event->next;
+	else
+		if(aux) tmp->next = aux->next;
+
+	return aux;
+}
+
 void *
 _simulator_helper(void *arg)
 {
 	time_t now, last;
 	int jobs_ended;
+	bool process = true;
 
 	_increment_thd_count();
 
@@ -723,23 +747,28 @@ _simulator_helper(void *arg)
 		else
 			info("Simulator Helper cycle: %ld, No events!!!", now);
 
-		while((head_simulator_event) && (now >= head_simulator_event->when)){
-			volatile simulator_event_t *aux;
+		while((head_simulator_event)){
+			/* FVZ: try to know if it was killed by time limit or not */
+			volatile simulator_event_t *aux  = _finished_sim_jobs(now);
+			if(aux == NULL) 
+				break;
 			int event_jid;
-			event_jid = head_simulator_event->job_id;
-			aux = head_simulator_event;
-			head_simulator_event = head_simulator_event->next;
+			int status = 0; //0 means success
+			if(aux->when > aux->hardwhen) status = JOB_FAILED;
+			event_jid = aux->job_id;
 			aux->next = head_sim_completed_jobs;
 			head_sim_completed_jobs = aux;
-			total_sim_events--;                        
+			total_sim_events--;
+			info("Simulator Helper cycle: %ld, jobid %u when %lu wclimit %lu!",
+				now,event_jid,aux->when,aux->hardwhen);                       
 			pthread_mutex_unlock(&simulator_mutex);
-			if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
+			if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, status) == SLURM_SUCCESS) { 
 				pthread_mutex_lock(&simulator_mutex);
 				waiting_epilog_msgs++;
-				info("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %u SENT", event_jid);
+				info("SIM: JOB_COMPLETE_BATCH_SCRIPT for jobid %u SENT", event_jid);
 				jobs_ended++;
 			} else {
-				error("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %u NOT SENT", event_jid);
+				error("SIM: JOB_COMPLETE_BATCH_SCRIPT for jobid %u NOT SENT", event_jid);
 				pthread_exit(0);
 				_decrement_thd_count();
 				return NULL;

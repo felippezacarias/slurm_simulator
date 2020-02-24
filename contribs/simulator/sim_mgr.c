@@ -509,7 +509,11 @@ generateJob(job_trace_t* jobd) {
 	slurm_init_job_desc_msg(&dmesg);
 
 	/* First, set up and call Slurm C-API for actual job submission. */
-	dmesg.time_limit    = jobd->wclimit;
+	/* FVZ: I will change this timelimit to be the duration, because
+	 * because we are going to dynamically change due to the speed. The 
+	 * hard job limit will be sent on SIM_JOB msg */
+	//dmesg.time_limit    = jobd->wclimit;
+	dmesg.time_limit    = jobd->duration;
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
 	uidt = userIdFromName(jobd->username, &gidt);
@@ -575,6 +579,7 @@ generateJob(job_trace_t* jobd) {
 	slurm_msg_t_init(&resp_msg);
 	req.job_id       = rptr->job_id;
 	req.duration     = jobd->duration;
+	req.wclimit     = jobd->wclimit;
 	req_msg.msg_type = REQUEST_SIM_JOB;
 	req_msg.data     = &req;
 	req_msg.protocol_version = SLURM_PROTOCOL_VERSION;
