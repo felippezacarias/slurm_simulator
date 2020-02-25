@@ -272,6 +272,7 @@ static int  _write_data_array_to_file(char *file_name, char **data,
 static void _xmit_new_end_time(struct job_record *job_ptr);
 static int _update_sim_job_status(struct job_record *job_ptr);
 double _compute_scale(struct job_record *job_ptr);
+bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
@@ -18658,13 +18659,13 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_set_addr(&req_msg.address, (uint16_t)slurm_get_slurmd_port(),
 						this_addr);
 
-	/*FVZ: Uncomment to actually send the msg and update job info */
-	//if (slurm_send_recv_node_msg(&req_msg, &resp_msg, 500000) < 0) {
-	//	printf("check_events_trace: error in slurm_send_recv_node_msg\n");
-	//	return SLURM_ERROR;
-	//}else{
-	//	debug5("FELIPPE: %s. job_id=%u sending update rpc success.\n", __func__,job_ptr->job_id);
-	//}
+	/*FVZ: Uncomment/comment to send/not send the msg and update job info */
+	if (slurm_send_recv_node_msg(&req_msg, &resp_msg, 500000) < 0) {
+		printf("check_events_trace: error in slurm_send_recv_node_msg\n");
+		return SLURM_ERROR;
+	}else{
+		debug5("FELIPPE: %s. job_id=%u sending update rpc success.\n", __func__,job_ptr->job_id);
+	}
 
 	return rc;
 
@@ -18688,10 +18689,36 @@ double _compute_scale(struct job_record *job_ptr){
 	if(job_cnt) scale /= job_cnt;
 	else scale = 1.0;
 
-	debug5("FELIPPE: %s. job_id=%u model speed %.5f",
+	debug5("FELIPPE: %s. job_id=%u model speed=%.5f",
 			__func__,job_ptr->job_id,scale);
 
 	return scale;
+}
+
+bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr){
+
+	bool is_sharing = false;
+
+	//if don't ask for exclusive node and is running
+	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
+
+		bool nodes = (bit_overlap(job_ptr->node_bitmap, job_scan_ptr->node_bitmap) > 0);
+		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
+						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
+		bool nodes_x = (bit_overlap(job_ptr->node_bitmap, 
+						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
+		bool mnodes_x = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
+						job_scan_ptr->node_bitmap) > 0);
+
+		debug5("FELIPPE: %s job_id=%u job_scan_id=%u nodesxnodes=%d mnodesxmnodes=%d nodesxmnodes=%d mnodesxnodes=%d",
+				__func__,job_ptr->job_id,job_scan_ptr->job_id,nodes,mnodes,nodes_x,mnodes_x);
+
+		if((nodes || mnodes || nodes_x || mnodes_x) &&
+		   (job_ptr->job_id != job_scan_ptr->job_id))
+				is_sharing = true;
+	}
+
+	return is_sharing;
 }
 #endif
 
@@ -18712,6 +18739,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 	double time_delta = 0.0, scale;
 	uint32_t jobid, scan_jobid;
 	time_t now = time(NULL);
+	bool overlap = false;
     /*TODO
     1. "How much" of the app has finished?
      x_A := x_A + <time delta> * v
@@ -18727,23 +18755,18 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
      * job_ptr->job_share will impact job_ptr->speed, time_elapsed and time_left
      */
 
-	/* FVZ: TODO: Error! it also must consider the memory pool */
-	bool overlap = false;
+	debug5("FELIPPE: %s", __func__);
+	
 	if(!completing){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
-			if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
-				if((bit_overlap(job_ptr->node_bitmap, job_scan_ptr->node_bitmap) > 0) &&
-					(job_ptr->job_id != job_scan_ptr->job_id)){
-					overlap = true;
-					list_append(job_ptr->job_share, job_scan_ptr->job_id);
-					list_append(job_scan_ptr->job_share, job_ptr->job_id);
-				}
-
+			if(_is_sharing_node(job_ptr,job_scan_ptr)){
+				list_append(job_ptr->job_share, job_scan_ptr->job_id);
+				list_append(job_scan_ptr->job_share, job_ptr->job_id);
+				overlap = true;
 			}
 		}
 	}
-	else
-	{		
+	else{		
 		if(list_count(job_ptr->job_share)) 
 			overlap = true;
 	}
@@ -18820,7 +18843,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
     //Can be controlled similar to src/plugins/select/linear/select_linear.c:572:
     job_memory_allocated = job_ptr->job_resrcs->memory_allocated;
     job_memory_used      = job_ptr->job_resrcs->memory_used;
-    printf("[DEBUG] maxrss=%d \t memreq=%d \t memory_allocated=%d \t memory_used=%d\n", job_ptr->maxrss, job_ptr->memreq, job_memory_allocated, job_memory_used);*/
+    printf("[DEBUG] maxrss=%d \t memreq=%d \t memory_allocated=%d \t memory_used=%d\n", 
+			job_ptr->maxrss, job_ptr->memreq, job_memory_allocated, job_memory_used);*/
 
 #endif
     return rc;

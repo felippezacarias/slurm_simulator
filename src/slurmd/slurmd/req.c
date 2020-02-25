@@ -552,12 +552,12 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 
 	total_sim_events++;
 	if(!head_simulator_event){
-		info("SIM: Adding new event for jobid %u when list is empty for future time %ld wclimit %ld!",
+		info("SIM: Adding new event for jobid %u when list is empty for future time when %ld wclimit %ld!",
 				new_event->job_id, new_event->when,new_event->hardwhen);
 		head_simulator_event = new_event;
 	}else{
 		volatile simulator_event_t *node_temp = head_simulator_event;
-		info("SIM: Adding new event for jobid %u in the event list for future time %ld wclimit %ld",
+		info("SIM: Adding new event for jobid %u in the event list for future time when %ld wclimit %ld",
 				new_event->job_id, new_event->when,new_event->hardwhen);
 
 		if(head_simulator_event->when > new_event->when){
