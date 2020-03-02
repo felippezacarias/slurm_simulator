@@ -98,6 +98,8 @@ int main(int argc, char* argv[])
             if(i==1) {
                 if (first_arrival == NO_VAL64) first_arrival = atoi(p);
                 job_arr[idx].submit = atoi(p) - first_arrival;
+                //job_arr[idx].submit = submission;
+                //submission+=5;
                 //printf("Submit time: %s -> %ld -- %ld\n", p,job_arr[idx].submit,first_arrival);
             }  // why submit cannot start from 0? 
             if(i==2) {
@@ -110,6 +112,7 @@ int main(int argc, char* argv[])
             }
             if(i==4) {
                 job_arr[idx].wclimit = atoi(p);
+                if(job_arr[idx].wclimit == 0) job_arr[idx].wclimit = job_arr[idx].duration;
                 //printf("Wall Clock Limit: %ld\n", job_arr[idx].wclimit );
             }
             if(i==5) {//in MB

@@ -2882,6 +2882,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	} else
 		selected_node_cnt = req_nodes;
 
+	#ifdef SLURM_SIMULATOR
 	/* FVZ: Debug */
 	if(select_bitmap){
 		char *name;
@@ -2889,6 +2890,15 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		debug5("FELIPPE: %s jobid %u select_node_count %d  name %s",__func__,job_ptr->job_id,bit_set_count(select_bitmap),name);
 		xfree(name);
 	}
+	#endif
+
+	/* FVZ: dealing with cancelled jobs */
+	#ifdef SLURM_SIMULATOR
+	if((error_code == SLURM_SUCCESS) &&
+		(job_ptr->time_limit == 0)){
+			goto cleanup;
+	}
+	#endif
 
 	memcpy(tres_req_cnt, job_ptr->tres_req_cnt, sizeof(tres_req_cnt));
 	tres_req_cnt[TRES_ARRAY_CPU] =
