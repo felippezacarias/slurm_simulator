@@ -17,7 +17,6 @@
 #include<stdio.h>
 #include <string.h>
 
-
 /*
  * Sum values of a vector and return its value.
  * Input:  - vector - buffer with values
@@ -80,7 +79,7 @@ double predict(double x_,double m,double b);
  *         - y100    - buffer to speed values of 100% rw
  * 
  */
-void read_sensitivity_file(int app_, double* x50,double* y50,
+void read_sensitivity_file(FILE* stream, int app_, int interf_nodes,double* x50,double* y50,
                 double* x100,double* y100);
 
 /*
@@ -91,15 +90,35 @@ void read_sensitivity_file(int app_, double* x50,double* y50,
  * obs: in this function the buffer line is modified.
  * Return - token
  */
+
+void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x50,double* y50,
+            double* x100,double* y100);
+
 const char* getfield(char* line, int num);
 
 /*
  * Main function to return speed value.
  * Input:  - app_index      - simulated application index to look up 
  *                              in the referencefile
- *         - interf_bw      - simulated application bandwidth
- *         - interf_rwratio - simulated application read/write percentage
+ *         - app_proc       - Number of target application's nodes
+ *         - bw_threshold   - Threshold to be used in case of the multi curves approach
+ *         - interf_n       - Number of apps sharing resources
+ *         - interf_bw      - List of bandwidth of the interfering apps
+ *         - interf_rwratio - List of rw ratio of the interfering apps
+ *         - interf_nodes   - List of nodes sharing with tshe interfering apps
  */
-double speed(int app_index,int interf_bw,int interf_rwratio);
+double speed(int app_index, int app_nodes, double bw_threshold, int interf_n, double* interf_bw,int* interf_rwratio, int* interf_nodes);
+
+/*
+ * Interface function to return speed value.
+ * Input:  - app_index      - simulated application index to look up 
+ *                              in the referencefile
+ *         - app_nodes      - number of nodes of the target app
+ *         - bw_threshold   - Threshold to be used in case of the multi curves approach
+ *         - interf_n       - number of entries on interf list
+ *         - interf_apps_index - list of index of sharing apps
+ *         - interf_apps_nodes - list of nodes of sharing apps
+ */
+double model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes);
 
 #endif /* _LINEAR_REGRESSION_H_ */

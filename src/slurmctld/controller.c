@@ -197,6 +197,9 @@ int     test_config_rc = 0;
 uint16_t running_cache = 0;
 pthread_mutex_t assoc_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t assoc_cache_cond = PTHREAD_COND_INITIALIZER;
+/* FVZ: ... */
+double bw_threshold;
+int is_multi_curve;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -289,6 +292,7 @@ int main(int argc, char **argv)
 		WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, NO_LOCK };
 	slurm_trigger_callbacks_t callbacks;
 	bool create_clustername_file;
+	char *tmp_ptr;
 
 	/*
 	 * Make sure we have no extra open files which
@@ -340,7 +344,16 @@ int main(int argc, char **argv)
 	if (!test_config)
 		_kill_old_slurmctld();
 
-        total_log_jobs= *trace_recs_end_sim; /* ANA: shared memory variable stored in a global variable, as it will not be changed by another process, to avoid accessing shared memory every time. */
+    total_log_jobs= *trace_recs_end_sim; /* ANA: shared memory variable stored in a global variable, as it will not be changed by another process, to avoid accessing shared memory every time. */
+	/* FVZ: reading the parameters for the disaggregated arch */
+	bw_threshold = 0.5;
+	is_multi_curve = 1;
+	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "bw_threshold=")))
+			bw_threshold = atof(tmp_ptr + 13);
+	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_multi_curve=")))
+		is_multi_curve = atoi(tmp_ptr + 15);
+	info("Slurm disaggregated validation model bw_threshold %.5f is_multi_curve %d", bw_threshold,
+		     is_multi_curve);	
 
 	for (i = 0; i < 3; i++)
 		fd_set_close_on_exec(i);

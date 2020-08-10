@@ -238,6 +238,13 @@ extern int    test_config_rc;
 #ifdef SLURM_SIMULATOR
 extern int backfill_interval;
 #endif
+/* FVZ: Globals to help automatize the benchmaark process 
+	bw_threshold to consider the nodes of a particular job regarding its bw proximity to max_bw
+	is_multi_curve to use or not the single or multi interf node curve approach
+	They will be read from SlurmctldParameters*/
+extern double bw_threshold;
+extern int is_multi_curve;
+
 /*****************************************************************************\
  *  NODE parameters and data structures, mostly in src/common/node_conf.h
 \*****************************************************************************/
