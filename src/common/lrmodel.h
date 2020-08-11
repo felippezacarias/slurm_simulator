@@ -17,6 +17,8 @@
 #include<stdio.h>
 #include <string.h>
 
+#define MODEL_MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+
 /*
  * Sum values of a vector and return its value.
  * Input:  - vector - buffer with values

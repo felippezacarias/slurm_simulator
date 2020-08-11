@@ -10,7 +10,7 @@ double model_speed(int app_index, int app_nodes, double bw_threshold, int interf
     interf_rwratio = (int*) malloc(interf_n*sizeof(int));
     interf_bw = (double*) malloc(interf_n*sizeof(double));
 
-    stream = fopen("~/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/app_info_list.csv", "r");
+    stream = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/app_info_list.csv", "r");
     for(int i = 0; i < interf_n; i++){
         char *id_, *rw_, *bw_, *nodes_;
         int id, rw_ratio, nodes;
@@ -20,9 +20,9 @@ double model_speed(int app_index, int app_nodes, double bw_threshold, int interf
         {
             id_ = strdup(line);
             id = atoi(getfield(id_, 2));
-            nodes_ = strdup(line);
-            nodes = atoi(getfield(nodes_, 4));
-            if((id == interf_apps_index[i]) && (nodes == interf_apps_nodes[i])){
+            //nodes_ = strdup(line);
+            //nodes = atoi(getfield(nodes_, 4));
+            if((id == interf_apps_index[i])){//&& (nodes == interf_apps_nodes[i])){
                 rw_ = strdup(line);
                 bw_ = strdup(line);
                 
@@ -37,7 +37,7 @@ double model_speed(int app_index, int app_nodes, double bw_threshold, int interf
                 free(rw_);
                 free(bw_);
                 free(id_);
-                free(nodes_);
+                //free(nodes_);
                 break;
             }
             free(id_);
@@ -86,7 +86,7 @@ double speed(int app_index, int app_proc, double bw_threshold, int interf_n, dou
 
     // Sum proc based on a threshold
     for(int i=0;i<interf_n;i++){
-        if(interf_bw[i] > max_bw*bw_threshold)
+        if(interf_bw[i] >= max_bw*bw_threshold)
             nodes += interf_nodes[i];
     }
 
@@ -177,7 +177,7 @@ void read_sensitivity_file(FILE* stream, int app_, int interf_nodes, double* x50
     char line[1024];
     int i50 = 0, i100 = 0;
     char *id_, *x_, *y_, *interf_, *tmp;
-    int id,read_level,interf;
+    int id,read_level,interf,proc;
     double x,y;
 
     while (fgets(line, 1024, stream))
@@ -218,10 +218,10 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
             double* x100,double* y100)
 {
     FILE* stream = NULL;
-    int has_curve = 0, lb = 1, ub = 1, ratio = 1;
-    double w_lb,w_ub;
+    int has_curve = 0, lb = 1, ub = 1, ratio = 1, real_interf_nodes = 0;
+    double x,y,w_lb,w_ub;
 
-    stream = fopen("~/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/curves_apps_multi.csv", "r");
+    stream = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/curves_apps_multi.csv", "r");
 
     int ninterf[4];
     //Get the number of interf_curves
@@ -234,34 +234,40 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
     //In our tests we just collected the curves for app using 4, 16 and 31 nodes
     if(app_proc==31) app_proc = 32;
     ratio = (app_proc%4) ? 1 : (app_proc/4);
-    for(int i = 0; i < 4; i++){
+    for(int i = 1; i < 4; i++){
         ninterf[i]=(i+1)*ratio;
     }
+    ninterf[0] = 1;
     if(ninterf[3]>31) ninterf[3]=31;
 
+    //Before reading the right curve, check if the number of reported interf nodes
+    //is higher than the target's number of nodes
+    real_interf_nodes = MODEL_MIN(app_proc,interf_nodes);
+
     for(int i =0; i < 4; i++){
-        if(ninterf[i] == interf_nodes){
+        if(ninterf[i] == real_interf_nodes){
             has_curve = 1;
             break;
         }
-        if(ninterf[i] < interf_nodes)
+        if(ninterf[i] < real_interf_nodes)
             lb = ninterf[i];
         //we issue a break here to get the upper bound near the curve we want
-        if(ninterf[i] > interf_nodes){
+        if(ninterf[i] > real_interf_nodes){
             ub = ninterf[i];
             break;
         }
     }
 
+    printf("Ratio %d  has_curve [%d]\n",ratio,has_curve);
     for(int i = 0; i< 4; i++){
-        printf("%d - %d %d %d [%d]\n",i,ninterf[i],app_proc,ratio,has_curve);
+        printf("[%d] - %d %d\n",i,ninterf[i],app_proc);
     }
 
     if(has_curve){
         //single curve example
         //read_level,app,proc,ibw_high_mean,speed,id,interf
         //getfield function mess with the pointer
-        read_sensitivity_file(stream,app_,interf_nodes,x50,y50,x100,y100);
+        read_sensitivity_file(stream,app_,real_interf_nodes,x50,y50,x100,y100);
     }
     else
     {
@@ -275,7 +281,7 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
         rewind(stream);
         read_sensitivity_file(stream,app_,ub,xub50,yub50,xub100,yub100);
 
-        w_ub=(interf_nodes-lb)/(ub-lb);
+        w_ub=(real_interf_nodes-lb)/(ub-lb);
         w_lb=(1-w_ub);
 
         for(int i=0;i<5;i++){

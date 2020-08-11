@@ -18697,13 +18697,13 @@ double _compute_scale(struct job_record *job_ptr){
 		while ((jobid = (uint32_t) list_next(job_iterator))) {
 			job_tmp = find_job_record(jobid);
 			interf_apps_index[idx]=job_tmp->sim_executable;
-			interf_apps_nodes[idx]=job_tmp->total_nodes;
-			debug5("FELIPPE: if - %s. job_id=%u sim_executable=%u total_nodes=%u idx=%d",
-			__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->total_nodes,idx);
+			interf_apps_nodes[idx]=job_tmp->details->num_tasks;
+			debug5("FELIPPE: if - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d",
+			__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx);
 			idx++;
 
 		}
-		scale = model_speed(job_ptr->sim_executable,job_ptr->total_nodes,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
+		scale = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
 	}
 	else{
 		//single curve. use the slowest speed
@@ -18714,8 +18714,8 @@ double _compute_scale(struct job_record *job_ptr){
 			interf_apps_index[idx]=job_tmp->sim_executable;
 			// It is one because we want to use the curve created using only one interfering node
 			interf_apps_nodes[idx]=1;
-			tmp = model_speed(job_ptr->sim_executable,job_ptr->total_nodes,bw_threshold,1,interf_apps_index,interf_apps_nodes);
-			debug5("FELIPPE: else - %s. job_id=%u sim_executable=%u total_nodes=%u idx=%d speed=%.5f",__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->total_nodes,idx,tmp);
+			tmp = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,1,interf_apps_index,interf_apps_nodes);
+			debug5("FELIPPE: else - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d speed=%.5f",__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx,tmp);
 			if(scale > tmp) scale = tmp;
 		}
 	}
