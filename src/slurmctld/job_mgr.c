@@ -273,6 +273,7 @@ static void _xmit_new_end_time(struct job_record *job_ptr);
 static int _update_sim_job_status(struct job_record *job_ptr);
 double _compute_scale(struct job_record *job_ptr);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
+int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
 
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
@@ -18664,7 +18665,7 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 		printf("check_events_trace: error in slurm_send_recv_node_msg\n");
 		return SLURM_ERROR;
 	}else{
-		debug5("FELIPPE: %s. job_id=%u sending update rpc success.\n", __func__,job_ptr->job_id);
+		debug5("FELIPPE: %s. job_id=%u sending update rpc success.", __func__,job_ptr->job_id);
 	}
 
 	return rc;
@@ -18681,49 +18682,45 @@ double _compute_scale(struct job_record *job_ptr){
 	int *interf_apps_index, *interf_apps_nodes;
 	int idx = 0;
 
+	debug5("FELIPPE: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
+
 	if(job_cnt){
     	interf_apps_index = (int*) malloc(job_cnt*sizeof(int));
     	interf_apps_nodes = (int*) malloc(job_cnt*sizeof(int));
-	}
 	
-	job_iterator = list_iterator_create(job_ptr->job_share);
+		job_iterator = list_iterator_create(job_ptr->job_share);
 
-	if(is_multi_curve){
-	//int interf_rwratio[] = {70};
-    //double interf_bw[] = {15233.479};
-    //int interf_nodes[] = {16};
-    //int N = 1;
-	//double speed(int app_index, int app_proc, int N_, double bw_threshold, double* interf_bw,int* interf_rwratio, int* interf_nodes){
-		while ((jobid = (uint32_t) list_next(job_iterator))) {
-			job_tmp = find_job_record(jobid);
-			interf_apps_index[idx]=job_tmp->sim_executable;
-			interf_apps_nodes[idx]=job_tmp->details->num_tasks;
-			debug5("FELIPPE: if - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d",
-			__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx);
-			idx++;
+		if(is_multi_curve){
+			while ((jobid = (uint32_t) list_next(job_iterator))) {
+				job_tmp = find_job_record(jobid);
+				interf_apps_index[idx]=job_tmp->sim_executable;
+				//interf_apps_nodes[idx]=job_tmp->details->num_tasks;
+				interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
+				debug5("FELIPPE: if - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d",
+				__func__,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
+				idx++;
 
+			}
+			scale = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
 		}
-		scale = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
-	}
-	else{
-		//single curve. use the slowest speed
-		while ((jobid = (uint32_t) list_next(job_iterator))) {
-			job_tmp = find_job_record(jobid);
-			//BW (15000.0) and rwratio (90) are related to job_tmp
-			//tmp = speed(job_ptr->sim_executable,15000.0,90);
-			interf_apps_index[idx]=job_tmp->sim_executable;
-			// It is one because we want to use the curve created using only one interfering node
-			interf_apps_nodes[idx]=1;
-			tmp = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,1,interf_apps_index,interf_apps_nodes);
-			debug5("FELIPPE: else - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d speed=%.5f",__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx,tmp);
-			if(scale > tmp) scale = tmp;
+		else{
+			//single curve. use the slowest speed
+			while ((jobid = (uint32_t) list_next(job_iterator))) {
+				job_tmp = find_job_record(jobid);
+				//BW (15000.0) and rwratio (90) are related to job_tmp
+				//tmp = speed(job_ptr->sim_executable,15000.0,90);
+				interf_apps_index[idx]=job_tmp->sim_executable;
+				// It is one because we want to use the curve created using only one interfering node
+				interf_apps_nodes[idx]=1;
+				tmp = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,1,interf_apps_index,interf_apps_nodes);
+				debug5("FELIPPE: else - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d speed=%.5f",__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx,tmp);
+				if(scale > tmp) scale = tmp;
+			}
 		}
-	}
-	list_iterator_destroy(job_iterator);
-	if(job_cnt){
-    	free(interf_apps_index);
-    	free(interf_apps_nodes);
-	}
+		list_iterator_destroy(job_iterator);
+		free(interf_apps_index);
+		free(interf_apps_nodes);
+	}//end if(job_cnt)
 
 	//debug5("FELIPPE: %s. job_id=%u model speed=%.5f",
 	//		__func__,job_ptr->job_id,scale);
@@ -18758,6 +18755,19 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 
 	return is_sharing;
 }
+
+int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf){
+	int32_t nodes = (bit_overlap(job_ptr->node_bitmap, job_interf->node_bitmap));
+	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
+					job_interf->job_resrcs->memory_pool_bitmap));
+	int32_t nodes_x = (bit_overlap(job_ptr->node_bitmap, 
+					job_interf->job_resrcs->memory_pool_bitmap));
+	int32_t mnodes_x = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
+					job_interf->node_bitmap));
+
+	return (nodes + mnodes + nodes_x + mnodes_x);
+}
+
 #endif
 
 //Nishtala: scheduling function
@@ -18793,7 +18803,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
      * job_ptr->job_share will impact job_ptr->speed, time_elapsed and time_left
      */
 
-	debug5("FELIPPE: %s", __func__);
+	debug5("FELIPPE: %s for job_id=%u", __func__,job_ptr->job_id);
 	
 	if(!completing){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
@@ -18858,7 +18868,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d list_count=%d",
+			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_limit,scale,completing,count_job_scan_ptr);
 		}
