@@ -281,7 +281,7 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
         rewind(stream);
         read_sensitivity_file(stream,app_,ub,xub50,yub50,xub100,yub100);
 
-        w_ub=(real_interf_nodes-lb)/(ub-lb);
+        w_ub=((float)real_interf_nodes-(float)lb)/((float)ub-(float)lb);
         w_lb=(1-w_ub);
 
         for(int i=0;i<5;i++){
