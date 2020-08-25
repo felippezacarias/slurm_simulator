@@ -3977,6 +3977,12 @@ static void _slurm_rpc_submit_batch_job(slurm_msg_t *msg)
 	}
 #endif
 
+#ifdef SLURM_SIMULATOR
+	/* FVZ: dealing with cancelled jobs */
+	if(job_desc_msg->time_limit == 0)
+		total_epilog_complete_jobs++;
+#endif
+
 	/* use the credential to validate where we came from */
 	if (hostname) {
 		xfree(job_desc_msg->alloc_node);
