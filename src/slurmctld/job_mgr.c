@@ -18676,32 +18676,44 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 double _compute_scale(struct job_record *job_ptr){
 	ListIterator job_iterator;
 	struct job_record *job_tmp;
-	double scale = 1.0, tmp;
-	uint32_t jobid;
+	double scale = 1.0, *model_res = NULL;
+	double time_delta = 0.0, tmp;
+	uint32_t jobid, jobnodes = 0;
+	time_t now = time(NULL);
 	int job_cnt = list_count(job_ptr->job_share);
 	int *interf_apps_index, *interf_apps_nodes;
 	int idx = 0;
 
 	debug5("FELIPPE: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
 
+	//only for debug purpose
+	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
+
 	if(job_cnt){
     	interf_apps_index = (int*) malloc(job_cnt*sizeof(int));
     	interf_apps_nodes = (int*) malloc(job_cnt*sizeof(int));
 	
 		job_iterator = list_iterator_create(job_ptr->job_share);
+		//I'm considering only the computing nodes. If the number of interfering nodes
+		//is higher due the memory nodes
+		jobnodes+=bit_set_count(job_ptr->node_bitmap);
 
 		if(is_multi_curve){
 			while ((jobid = (uint32_t) list_next(job_iterator))) {
 				job_tmp = find_job_record(jobid);
 				interf_apps_index[idx]=job_tmp->sim_executable;
-				//interf_apps_nodes[idx]=job_tmp->details->num_tasks;
 				interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
-				debug5("FELIPPE: if - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d",
-				__func__,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
+				debug5("FELIPPE: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
+						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
 				idx++;
 
 			}
-			scale = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
+			
+			model_res = model_speed(job_ptr->sim_executable,jobnodes,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
+			scale = model_res[0];
+			debug5("FELIPPE: %s multi_curve job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+					__func__,job_ptr->job_id,scale,model_res[1],model_res[2],bw_threshold,time_delta);
+			free(model_res);
 		}
 		else{
 			//single curve. use the slowest speed
@@ -18712,20 +18724,22 @@ double _compute_scale(struct job_record *job_ptr){
 				interf_apps_index[idx]=job_tmp->sim_executable;
 				// It is one because we want to use the curve created using only one interfering node
 				interf_apps_nodes[idx]=1;
-				tmp = model_speed(job_ptr->sim_executable,job_ptr->details->num_tasks,bw_threshold,1,interf_apps_index,interf_apps_nodes);
-				debug5("FELIPPE: else - %s. job_tmp=%u sim_executable=%u num_tasks=%u idx=%d speed=%.5f",__func__,job_tmp->job_id,job_tmp->sim_executable,job_tmp->details->num_tasks,idx,tmp);
+				model_res = model_speed(job_ptr->sim_executable,jobnodes,1.0,1,interf_apps_index,interf_apps_nodes);
+				tmp = model_res[0];
+				debug5("FELIPPE: %s single_curve job_id=%u job_tmp=%u interf_exec=%u calc_interf_nodes=%u scale=%.5f bw_max=%.5f intef_nodes=%.1f time_elapsed=%e",
+						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],tmp,model_res[1],model_res[2],time_delta);
 				if(scale > tmp) scale = tmp;
+				free(model_res);
 			}
 		}
 		list_iterator_destroy(job_iterator);
 		free(interf_apps_index);
 		free(interf_apps_nodes);
 	}//end if(job_cnt)
-
-	//debug5("FELIPPE: %s. job_id=%u model speed=%.5f",
-	//		__func__,job_ptr->job_id,scale);
-	debug5("FELIPPE: %s. job_id=%u model_speed=%.5f bw_threshold=%.5f is_multi_curve=%d",
-			__func__,job_ptr->job_id,scale,bw_threshold,is_multi_curve);
+	else{//only for debug purpose
+		debug5("FELIPPE: %s job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+		__func__,job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
+	}
 
 	return scale;
 }
@@ -18784,7 +18798,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
     struct job_record *job_scan_ptr;
     job_iterator = list_iterator_create(job_list);
     int count_job_scan_ptr = 0;
-	double time_delta = 0.0, scale;
+	double time_delta = 0.0, scale = 1.0;
 	uint32_t jobid, scan_jobid;
 	time_t now = time(NULL);
 	bool overlap = false;
@@ -18828,15 +18842,18 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 	if (!overlap) {
 		job_ptr->speed        = 1.0/job_ptr->time_limit;
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
-		debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e completing=%d",
-				__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,completing);
+		debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e model_scaling=%e completing=%d",
+				__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,scale,completing);
+		//only for debug purpose
+		debug5("FELIPPE: _compute_scale job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+				job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
 	} else {
 
 		scale = _compute_scale(job_ptr);
 
 		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
-		debug5("FELIPPE: %s job_id=%u [sharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d",
+		debug5("FELIPPE: %s job_id=%u [sharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
 				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale,completing);
 
@@ -18868,7 +18885,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u scale=%e completing=%d list_count=%d\n",
+			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_limit,scale,completing,count_job_scan_ptr);
 		}

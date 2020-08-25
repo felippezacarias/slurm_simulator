@@ -1,13 +1,15 @@
 #include "src/common/lrmodel.h"
 
-double model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes){
+double* model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes){
     int *interf_rwratio;
     double* interf_bw;
-    double res, max_bw = 0.0;
+    double *res, res_speed, max_bw = 0.0;
     int low_rw = 100, nodes = 0;
 
     interf_rwratio = (int*) malloc(interf_n*sizeof(int));
     interf_bw = (double*) malloc(interf_n*sizeof(double));
+    //res will be {speed,max_bw,interf_nodes} for sake of logging
+    res = (double*) malloc(3*sizeof(double));
 
     // Get the rw ratio and bw from the interfering applications
     for(int i = 0; i < interf_n; i++){
@@ -34,8 +36,13 @@ double model_speed(int app_index, int app_nodes, double bw_threshold, int interf
     free(interf_rwratio);
     free(interf_bw);
 
-    res = speed(app_index,app_nodes,max_bw,low_rw,nodes);
+    res_speed = speed(app_index,app_nodes,max_bw,low_rw,nodes);
 
+    // making sure that the highest speed is 1.
+    res[0] = (res_speed > 1.0) ? 1.0 : res_speed;
+    res[1] = max_bw;
+    res[2] = nodes;
+ 
     return res;
 }
 

@@ -157,7 +157,7 @@ double speed(int app_index, int app_proc, double max_bw, int low_rw, int nodes);
  *         - interf_apps_index - list of index of sharing apps
  *         - interf_apps_nodes - list of nodes of sharing apps
  */
-double model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes);
+double* model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes);
 
 void swap(int* xp, int* yp);
 

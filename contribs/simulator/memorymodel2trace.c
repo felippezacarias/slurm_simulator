@@ -49,23 +49,24 @@ typedef struct job_trace {
 
 int main(int argc, char* argv[])
 {
-    int nrecs, i, submission = 5;
+    int nrecs, i, submission = 0, is_real;
     long first_arrival = NO_VAL64;
     int idx=0, errs=0, share = 0, mem_mb = 0;
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
-    char* fileName;
     FILE* file;
-    char line[1024], *p;
+    char line[1024], *p, *fileName;
 
 
     if(argc < 2){
-        printf("Error! ./swf2trace filename number_records\n");
+        //printf("Error! ./swf2trace trace_filename number_records [0-synthetic|1-real]\n");
+        printf("Error! ./swf2trace trace_filename number_records\n");
         exit(1);
     }
 
     fileName = argv[1];
-    if(argc > 2) nrecs = atoi(argv[2]);
-    else nrecs = 50;
+    nrecs = atoi(argv[2]);
+    //is_real = atoi(argv[3]);
+    
 
     file = fopen(fileName, "r");
     if(file == NULL){
@@ -107,7 +108,13 @@ int main(int argc, char* argv[])
                 //printf("Elapsed=%s -> %d\n", p,job_arr[idx].duration);
             }   
             if(i==3) {
-                job_arr[idx].tasks = atoi(p);
+                //If it is a real trace we use min cpus, since its procs field means number of cores
+                //for the synthetic trace we must use task and tasks_per_node to refer to a number of nodes
+                //job_arr[idx].tasks = (is_real) ? NO_VAL : atoi(p);
+                //job_arr[idx].min_cpus = (is_real) ? atoi(p) : NO_VAL;       
+                //job_arr[idx].tasks_per_node = (is_real) ? NO_VAL : 1;
+                job_arr[idx].min_cpus = atoi(p);       
+
                 //printf("Tasks=%s -> %d\n", p,job_arr[idx].tasks);
             }
             if(i==4) {
@@ -116,9 +123,10 @@ int main(int argc, char* argv[])
                 //printf("Wall Clock Limit: %ld\n", job_arr[idx].wclimit );
             }
             if(i==5) {//in MB
-                //mem_mb = round(atoi(p)/1024);
+                // If it is real trace, we use the mem_per_cpu option, otherwise it is mem per node
                 mem_mb = round(atoi(p));
-                job_arr[idx].pn_mim_memory =  mem_mb | MEM_PER_CPU;
+                //job_arr[idx].pn_mim_memory = (is_real) ? (mem_mb | MEM_PER_CPU) : mem_mb;
+                job_arr[idx].pn_mim_memory = (mem_mb | MEM_PER_CPU);
                 //printf("pn_mim_memory: %llu = [%d]\n", job_arr[idx].pn_mim_memory,mem_mb);
             }
             if(i==6){
@@ -134,11 +142,8 @@ int main(int argc, char* argv[])
 
         //Default not to set
         job_arr[idx].shared = NO_VAL;
-        job_arr[idx].tasks_per_node = NO_VAL;
         job_arr[idx].min_nodes = NO_VAL;
-        job_arr[idx].cpus_per_task = NO_VAL;
-        job_arr[idx].min_cpus = NO_VAL;       
-        
+        job_arr[idx].cpus_per_task = NO_VAL;        
 
         
         // for now keep username, partition and account constant.

@@ -536,7 +536,7 @@ generateJob(job_trace_t* jobd) {
 
 	dmesg.sim_executable = jobd->sim_executable;
 	//dmesg.min_cpus= jobd->tasks;
-	dmesg.ntasks_per_node = 1;
+	//dmesg.ntasks_per_node = 1;
 	//dmesg.cpus_per_task = 4;
 
 	/* Need something for environment--Should make this een more generic! */
