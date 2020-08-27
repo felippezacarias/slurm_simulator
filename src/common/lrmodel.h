@@ -16,6 +16,8 @@
 #include<stdlib.h>
 #include<stdio.h>
 #include<string.h>
+#include "src/common/log.h"
+
 
 #define MODEL_MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 

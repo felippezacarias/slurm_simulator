@@ -30,8 +30,8 @@ double* model_speed(int app_index, int app_nodes, double bw_threshold, int inter
         if(interf_bw[i] >= max_bw*bw_threshold)
             nodes += interf_apps_nodes[i];
     }
-
-    printf("m-%d %f %d\n",nodes,max_bw,low_rw);
+    
+    debug5("%s %d %f %d",__func__,nodes,max_bw,low_rw);
 
     free(interf_rwratio);
     free(interf_bw);
@@ -69,7 +69,7 @@ double speed(int app_index, int app_proc, double max_bw, int low_rw, int nodes){
     read_sensitivity_curve(app_index,app_proc,nodes,x50,y50,x100,y100);
 
     for(int i=0; i<5; i++){
-        printf("%d - %f %.7f - %f %.7f\n",i,x50[i],y50[i],x100[i],y100[i]);
+        debug5("%s %d - %f %.7f - %f %.7f",__func__,i,x50[i],y50[i],x100[i],y100[i]);
     }
 
     //Read bw curves
@@ -95,7 +95,7 @@ double speed(int app_index, int app_proc, double max_bw, int low_rw, int nodes){
     pred100 = predict(max_bw,m100,b100);
 
     w_100=(low_rw-50.0)/(100.0-50.0);
-    printf("w - %d %.5f\n",low_rw,w_100);
+    debug5("%s %d %.5f",__func__,low_rw,w_100);
     speed = ((pred50)*(1-w_100)+(pred100)*(w_100));
 
     return speed;
@@ -158,12 +158,12 @@ void interfering_bw_rw(int interf_, int interf_procs, int idx, int *interf_rwrat
     if(!has_info){
         double w_ub=(lb == ub) ? 1: ((float)interf_procs-(float)lb)/((float)ub-(float)lb);
         double w_lb=(1.0-w_ub);
-        printf("interf[%d] - %d %d %.5f %.5f\n",interf_procs,lb,ub,w_ub,w_lb);
+        debug5("%s interf[%d] - %d %d %.5f %.5f",__func__,interf_procs,lb,ub,w_ub,w_lb);
         bw=(bw_lb*w_lb + bw_ub*w_ub)/(w_lb+w_ub);
         rw_ratio = MODEL_MIN(rw_lb_ratio,rw_ub_ratio);
     }
 
-    printf("x-%d %d %f %d\n",interf_,interf_procs,bw,rw_ratio);
+    debug5("%s x - %d %d %f %d",__func__,interf_,interf_procs,bw,rw_ratio);
 
     interf_rwratio[idx] = rw_ratio;
     interf_bw[idx] = bw;
@@ -377,9 +377,8 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
         //if trace proc is within the range we have, we interpolate the curve
         if(app_proc>list_procs[list_size-1]){
             int higher_curve_proc = list_procs[list_size-1];
-            int min_interf = MODEL_MIN(higher_curve_proc,interf_nodes);
-            printf("if-extrapolating[%d] - %d %d\n",app_proc,higher_curve_proc,min_interf);
-            read_sensitivity_file(file,app_,higher_curve_proc,min_interf,x50,y50,x100,y100);
+            debug5("%s if-extrapolating[%d] - %d %d",__func__,app_proc,higher_curve_proc,higher_curve_proc);
+            read_sensitivity_file(file,app_,higher_curve_proc,higher_curve_proc,x50,y50,x100,y100);
         }
         else{
             boundary(app_proc,list_size,list_procs,&lb,&ub);
@@ -392,7 +391,7 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
 
             w_ub=((float)app_proc-(float)lb)/((float)ub-(float)lb);
             w_lb=(1.0-w_ub);
-            printf("else-extrapolating[%d] - %d %d %.5f %.5f %f\n",app_proc,lb,ub,w_ub,w_lb,(((float)app_proc-(float)lb)/((float)ub-(float)lb)));
+            debug5("%s else-extrapolating[%d] - %d %d %.5f %.5f %f",__func__,app_proc,lb,ub,w_ub,w_lb,(((float)app_proc-(float)lb)/((float)ub-(float)lb)));
             for(int i=0;i<5;i++){
                 x50[i]=(xlb50[i]*w_lb + xub50[i]*w_ub)/(w_lb+w_ub);
                 y50[i]=(ylb50[i]*w_lb + yub50[i]*w_ub)/(w_lb+w_ub);
@@ -418,9 +417,9 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
 
         has_curve = boundary(real_interf_nodes,4, ninterf, &lb, &ub);
 
-        printf("Ratio %d  has_curve [%d] aux_proc %d\n",ratio,has_curve,aux_app_proc);
+        debug5("%s Ratio %d  has_curve [%d] aux_proc %d",__func__,ratio,has_curve,aux_app_proc);
         for(int i = 0; i< 4; i++){
-            printf("[%d] - %d %d\n",i,ninterf[i],app_proc);
+            debug5("%s [%d] - %d %d\n",__func__,i,ninterf[i],app_proc);
         }
 
         if(has_curve){
@@ -433,7 +432,8 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
         {
             //multi curve, when we have to interpolate to create the curve
             //based on the number of interfering nodes
-            printf("[%d] - %d %d %d\n",real_interf_nodes,app_,lb,ub);
+            debug5("%s [%d] - %d %d %d",__func__,real_interf_nodes,app_,lb,ub);
+
 
             read_sensitivity_file(file,app_,app_proc,lb,xlb50,ylb50,xlb100,ylb100);
             rewind(file);
@@ -441,7 +441,7 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
 
             w_ub=((float)real_interf_nodes-(float)lb)/((float)ub-(float)lb);
             w_lb=(1.0-w_ub);
-            printf("[%d] - %d %d %.5f %.5f %f\n",real_interf_nodes,lb,ub,w_ub,w_lb,(((float)real_interf_nodes-(float)lb)/((float)ub-(float)lb)));
+            debug5("%s [%d] - %d %d %.5f %.5f %f",__func__,real_interf_nodes,lb,ub,w_ub,w_lb,(((float)real_interf_nodes-(float)lb)/((float)ub-(float)lb)));
             for(int i=0;i<5;i++){
                 x50[i]=(xlb50[i]*w_lb + xub50[i]*w_ub)/(w_lb+w_ub);
                 y50[i]=(ylb50[i]*w_lb + yub50[i]*w_ub)/(w_lb+w_ub);
