@@ -1227,6 +1227,10 @@ pack_msg(slurm_msg_t const *msg, Buf buffer)
 	case MESSAGE_SIM_HELPER_CYCLE:
 		_pack_sim_helper_msg((sim_helper_msg_t *)msg->data, buffer);
 		break;
+	case REQUEST_UPDATE_SIM_JOB:
+		/*  FVZ: pack function for update simjob info rpc. */
+		_pack_sim_job_msg((sim_job_msg_t *)msg->data, buffer);
+		break;
 	case REQUEST_ABORT_JOB:
 	case REQUEST_KILL_PREEMPTED:
 	case REQUEST_KILL_TIMELIMIT:
@@ -1949,6 +1953,10 @@ unpack_msg(slurm_msg_t * msg, Buf buffer)
 		break;
 	case MESSAGE_SIM_HELPER_CYCLE:
 		_unpack_sim_helper_msg((sim_helper_msg_t **)&msg->data, buffer);
+		break;
+	case REQUEST_UPDATE_SIM_JOB:
+		/*  FVZ: unpack function for update simjob info rpc. */
+		_unpack_sim_job_msg((sim_job_msg_t **)&msg->data, buffer);
 		break;
 	case REQUEST_ABORT_JOB:
 	case REQUEST_KILL_PREEMPTED:
@@ -8583,6 +8591,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack16(job_desc_ptr->pn_min_cpus, buffer);
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
+		pack32(job_desc_ptr->sim_executable, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -8722,6 +8731,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack16(job_desc_ptr->pn_min_cpus, buffer);
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
+		pack32(job_desc_ptr->sim_executable, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -8861,6 +8871,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack16(job_desc_ptr->pn_min_cpus, buffer);
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
+		pack32(job_desc_ptr->sim_executable, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -9029,6 +9040,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack16(&job_desc_ptr->pn_min_cpus, buffer);
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
+		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);
@@ -9214,6 +9226,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack16(&job_desc_ptr->pn_min_cpus, buffer);
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
+		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);
@@ -9398,6 +9411,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack16(&job_desc_ptr->pn_min_cpus, buffer);
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
+		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);
@@ -13149,6 +13163,7 @@ static void _pack_sim_job_msg(sim_job_msg_t *msg, Buf buffer)
 {
        xassert ( msg != NULL );
 
+	   pack32((uint32_t)msg->wclimit, buffer ) ;
        pack32((uint32_t)msg->duration, buffer ) ;
        pack32((uint32_t)msg->job_id,  buffer ) ;
 }
@@ -13331,6 +13346,7 @@ static int  _unpack_sim_job_msg(sim_job_msg_t **msg_ptr, Buf buffer)
        msg = xmalloc ( sizeof (sim_job_msg_t) );
        *msg_ptr = msg ;
 
+	   safe_unpack32(&msg->wclimit ,      buffer ) ;
        safe_unpack32(&msg->duration ,      buffer ) ;
        safe_unpack32(&msg->job_id  , buffer ) ;
        return SLURM_SUCCESS;

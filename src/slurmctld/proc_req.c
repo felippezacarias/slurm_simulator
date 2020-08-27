@@ -2367,9 +2367,9 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
 //#endif
 	/* NOTE: RPC has no response */
 #ifdef SLURM_SIMULATOR
-	info("SIM: Processing RPC: MESSAGE_EPILOG_COMPLETE for jobid %d", epilog_msg->job_id);
+		info("SIM: Processing RPC: MESSAGE_EPILOG_COMPLETE for jobid %d", epilog_msg->job_id);
         slurm_send_rc_msg(msg, SLURM_SUCCESS);
-	finished_jobs_waiting_for_epilog--;
+		finished_jobs_waiting_for_epilog--;
         /* ANA: keep track of the jobs that have finished in its entirety. */
         total_epilog_complete_jobs++;
         

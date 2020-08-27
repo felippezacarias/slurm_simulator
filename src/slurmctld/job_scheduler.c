@@ -2476,6 +2476,9 @@ extern void launch_job(struct job_record *job_ptr)
 	if (launch_job_ptr->pack_job_id)
 		_set_pack_env(launch_job_ptr, launch_msg_ptr);
 
+	/* FVZ: executing check function before launching the job */
+	_check_job_status(job_ptr, false);
+
 #ifndef SLURM_SIMULATOR
 	agent_arg_ptr = xmalloc(sizeof(agent_arg_t));
 	agent_arg_ptr->protocol_version = protocol_version;

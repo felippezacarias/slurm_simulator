@@ -529,12 +529,14 @@ generateJob(job_trace_t* jobd) {
 	dmesg.ntasks_per_node = jobd->tasks_per_node;*/
 
 	if(jobd->shared == 0) dmesg.shared = jobd->shared;
-	//if(jobd->tasks_per_node) dmesg.ntasks_per_node = jobd->tasks_per_node;
+	if(jobd->tasks_per_node) dmesg.ntasks_per_node = jobd->tasks_per_node;
 	if(jobd->min_nodes) dmesg.min_nodes = jobd->min_nodes;
 	if(jobd->cpus_per_task) dmesg.cpus_per_task = jobd->cpus_per_task;
 	if(jobd->tasks) dmesg.num_tasks = jobd->tasks;
 	if(jobd->min_cpus) dmesg.min_cpus = jobd->min_cpus;
 	if(jobd->pn_mim_memory) dmesg.pn_min_memory = jobd->pn_mim_memory;
+
+	dmesg.sim_executable = jobd->sim_executable;
 	//dmesg.min_cpus = dmesg.num_tasks;
 	//dmesg.ntasks_per_node = 1;
 	//dmesg.cpus_per_task = 4;
@@ -582,6 +584,7 @@ generateJob(job_trace_t* jobd) {
 	slurm_msg_t_init(&resp_msg);
 	req.job_id       = rptr->job_id;
 	req.duration     = jobd->duration;
+	req.wclimit     = jobd->wclimit;
 	req_msg.msg_type = REQUEST_SIM_JOB;
 	req_msg.data     = &req;
 	req_msg.protocol_version = SLURM_PROTOCOL_VERSION;

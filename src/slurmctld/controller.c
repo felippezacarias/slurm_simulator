@@ -197,6 +197,9 @@ int     test_config_rc = 0;
 uint16_t running_cache = 0;
 pthread_mutex_t assoc_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t assoc_cache_cond = PTHREAD_COND_INITIALIZER;
+/* FVZ: ... */
+double bw_threshold;
+int is_multi_curve;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -289,6 +292,7 @@ int main(int argc, char **argv)
 		WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, WRITE_LOCK, NO_LOCK };
 	slurm_trigger_callbacks_t callbacks;
 	bool create_clustername_file;
+	char *tmp_ptr;
 
 	/*
 	 * Make sure we have no extra open files which
@@ -340,7 +344,16 @@ int main(int argc, char **argv)
 	if (!test_config)
 		_kill_old_slurmctld();
 
-        total_log_jobs= *trace_recs_end_sim; /* ANA: shared memory variable stored in a global variable, as it will not be changed by another process, to avoid accessing shared memory every time. */
+    total_log_jobs= *trace_recs_end_sim; /* ANA: shared memory variable stored in a global variable, as it will not be changed by another process, to avoid accessing shared memory every time. */
+	/* FVZ: reading the parameters for the sensitivity model */
+	bw_threshold = 1.0;
+	is_multi_curve = 0;
+	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "bw_threshold=")))
+			bw_threshold = atof(tmp_ptr + 13);
+	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_multi_curve=")))
+		is_multi_curve = atoi(tmp_ptr + 15);
+	info("Slurm disaggregated validation model bw_threshold %.5f is_multi_curve %d", bw_threshold,
+		     is_multi_curve);	
 
 	for (i = 0; i < 3; i++)
 		fd_set_close_on_exec(i);
@@ -2154,6 +2167,8 @@ static void *_slurmctld_background(void *no_data)
 			unlock_slurmctld(node_write_lock2);
 		}
 
+/* FVZ: we check time_limit on slurmd _simulator_helper func */
+#ifndef SLURM_SIMULATOR
 		if (difftime(now, last_timelimit_time) >= PERIODIC_TIMEOUT) {
 			lock_slurmctld(job_write_lock);
 			now = time(NULL);
@@ -2168,6 +2183,7 @@ static void *_slurmctld_background(void *no_data)
 			check_reboot_nodes();
 			unlock_slurmctld(node_write_lock);
 		}
+#endif
 
 		if (slurmctld_conf.health_check_interval &&
 		    (difftime(now, last_health_check_time) >=
