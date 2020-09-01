@@ -4117,7 +4117,7 @@ extern void excise_node_from_job(struct job_record *job_ptr,
 	bitstr_t *orig_bitmap;
 
 	orig_bitmap = bit_copy(job_ptr->node_bitmap);
-	make_node_idle(node_ptr, job_ptr, false); /* updates bitmap */
+	make_node_idle(node_ptr, job_ptr); /* updates bitmap */
 	xfree(job_ptr->nodes);
 	job_ptr->nodes = bitmap2node_name(job_ptr->node_bitmap);
 	i_first = bit_ffs(orig_bitmap);
@@ -11623,7 +11623,7 @@ static void _realloc_nodes(struct job_record *job_ptr,
 		    bit_test(orig_node_bitmap, i))
 			continue;
 		node_ptr = node_record_table_ptr + i;
-		make_node_alloc(node_ptr, job_ptr, i, false);
+		make_node_alloc(node_ptr, job_ptr);
 	}
 }
 
@@ -15221,7 +15221,8 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 			front_end_ptr->node_state &= (~NODE_STATE_COMPLETING);
 	} else {
 		for (i = 0; i < node_record_count; i++) {
-			if (!bit_test(job_ptr->node_bitmap, i))
+			if (!(bit_test(job_ptr->node_bitmap, i) || 
+				bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i)))
 				continue;
 			node_ptr = &node_record_table_ptr[i];
 			if (return_code) {
@@ -15229,18 +15230,7 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 					    slurmctld_conf.slurm_user_id);
 			}
 			/* Change job from completing to completed */
-			make_node_idle(node_ptr, job_ptr, false);
-		}
-
-		/* FVZ: Making memory nodes idle */
-		if(job_ptr->job_resrcs && job_ptr->job_resrcs->memory_pool_bitmap){
-			for (i = 0; i < node_record_count; i++) {
-				if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
-					continue;
-				node_ptr = &node_record_table_ptr[i];
-				
-				make_node_idle(node_ptr, job_ptr, true);
-			}
+			make_node_idle(node_ptr, job_ptr);
 		}
 	}
 #else
@@ -15254,7 +15244,7 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 	node_ptr = find_node_record(node_name);
 	/* FVZ: Maybe here we also have to make memory nodes idle too */
 	if (node_ptr)
-		make_node_idle(node_ptr, job_ptr, false);
+		make_node_idle(node_ptr, job_ptr);
 #endif
 
 	step_epilog_complete(job_ptr, node_name);

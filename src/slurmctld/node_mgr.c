@@ -3785,24 +3785,16 @@ void msg_to_slurmd (slurm_msg_type_t msg_type)
  * IN memory_node - indicating if it is a memory node or not
  */
 extern void make_node_alloc(struct node_record *node_ptr,
-			    struct job_record *job_ptr, int node_idx, bool memory_node)
+			    struct job_record *job_ptr)
 {
 	int inx = node_ptr - node_record_table_ptr;
 	uint32_t node_flags;
 	uint64_t mem_alloc;
 
 	(node_ptr->run_job_cnt)++;
-	if(memory_node){
-		/* FVZ: select_g_select_nodeinfo_get WILL RETURN node mem_allocated(for all jobs in that node) */
-		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
-				SELECT_NODEDATA_MEM_ALLOC,
-				NODE_STATE_ALLOCATED, &mem_alloc);
-		if(mem_alloc == node_ptr->real_memory)
-			bit_clear(idle_node_bitmap, inx);
-	}
-	else
-		bit_clear(idle_node_bitmap, inx);
+
 	bit_clear(idle_node_bitmap, inx);
+
 	if (job_ptr->details && (job_ptr->details->share_res == 0)) {
 		bit_clear(share_node_bitmap, inx);
 		(node_ptr->no_share_job_cnt)++;
@@ -3949,10 +3941,9 @@ static void _make_node_down(struct node_record *node_ptr, time_t event_time)
  * make_node_idle - flag specified node as having finished with a job
  * IN node_ptr - pointer to node reporting job completion
  * IN job_ptr - pointer to job that just completed or NULL if not applicable
- * IN memory_node - boolean if it is applied for memory nodes
  */
 void make_node_idle(struct node_record *node_ptr,
-		    struct job_record *job_ptr, bool memory_node)
+		    struct job_record *job_ptr)
 {
 	int inx = node_ptr - node_record_table_ptr;
 	uint32_t node_flags;
@@ -3963,9 +3954,12 @@ void make_node_idle(struct node_record *node_ptr,
 
 	if (job_ptr) {
 		if (job_ptr->node_bitmap_cg)
-			node_bitmap = job_ptr->node_bitmap_cg;
-		else
+			node_bitmap = job_ptr->node_bitmap_cg; /*FVZ it already contemplate memory nodes */
+		else{
 			node_bitmap = job_ptr->node_bitmap;
+			/*FVZ  account for memory nodes as well */
+			bit_or(node_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+		}
 
 		debug5("FELIPPE: %s job_id %u node_bitmap %d",__func__,job_ptr->job_id,bit_set_count(node_bitmap));
 
@@ -3979,7 +3973,7 @@ void make_node_idle(struct node_record *node_ptr,
 		last_job_update = now;
 		bit_clear(node_bitmap, inx);
 
-		if(!memory_node) job_update_tres_cnt(job_ptr, inx);
+		job_update_tres_cnt(job_ptr, inx);
 
 		if (!IS_JOB_FINISHED(job_ptr))
 			job_update_tres_cnt(job_ptr, inx);
