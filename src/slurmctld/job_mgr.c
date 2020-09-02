@@ -18741,18 +18741,12 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 	//if don't ask for exclusive node and is running
 	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
 
-		bool nodes = (bit_overlap(job_ptr->node_bitmap, job_scan_ptr->node_bitmap) > 0);
 		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
 						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
-		bool nodes_x = (bit_overlap(job_ptr->node_bitmap, 
-						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
-		bool mnodes_x = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-						job_scan_ptr->node_bitmap) > 0);
 
-		debug5("FELIPPE: %s job_id=%u job_scan_id=%u nodesxnodes=%d mnodesxmnodes=%d nodesxmnodes=%d mnodesxnodes=%d",
-				__func__,job_ptr->job_id,job_scan_ptr->job_id,nodes,mnodes,nodes_x,mnodes_x);
+		debug5("FELIPPE: %s job_id=%u job_scan_id=%u mnodesxmnodes=%d ",__func__,job_ptr->job_id,job_scan_ptr->job_id,mnodes);
 
-		if((nodes || mnodes || nodes_x || mnodes_x) &&
+		if((mnodes) &&
 		   (job_ptr->job_id != job_scan_ptr->job_id))
 				is_sharing = true;
 	}
@@ -18761,15 +18755,10 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 }
 
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf){
-	int32_t nodes = (bit_overlap(job_ptr->node_bitmap, job_interf->node_bitmap));
 	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
 					job_interf->job_resrcs->memory_pool_bitmap));
-	int32_t nodes_x = (bit_overlap(job_ptr->node_bitmap, 
-					job_interf->job_resrcs->memory_pool_bitmap));
-	int32_t mnodes_x = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-					job_interf->node_bitmap));
 
-	return (nodes + mnodes + nodes_x + mnodes_x);
+	return (mnodes);
 }
 
 #endif
