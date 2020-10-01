@@ -273,7 +273,6 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 	j->nnodes = job->node_cnt;
 	/* FVZ: memory node info and more detail */
 	if(jobresc){
-		j->nnodes = job->node_cnt - jobresc->memory_nhosts;
 		j->memory_nodes = xstrdup(jobresc->memory_nodes);
 		j->mnodes = jobresc->memory_nhosts;
 	}

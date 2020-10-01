@@ -121,6 +121,9 @@
 #define JOB_STATE_VERSION     "PROTOCOL_VERSION"
 #define JOB_CKPT_VERSION      "PROTOCOL_VERSION"
 
+#define LOCAL_SENSITIVITY	1
+#define REMOTE_SENSITIVITY	0
+
 typedef enum {
 	JOB_HASH_JOB,
 	JOB_HASH_ARRAY_JOB,
@@ -274,6 +277,7 @@ static int _update_sim_job_status(struct job_record *job_ptr);
 double _compute_scale(struct job_record *job_ptr);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
+double _allocated_remote_ratio(struct job_record *job_ptr);
 
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
@@ -18666,18 +18670,25 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 double _compute_scale(struct job_record *job_ptr){
 	ListIterator job_iterator;
 	struct job_record *job_tmp;
-	double scale = 1.0, *model_res = NULL;
-	double time_delta = 0.0, tmp;
+	double scale = 1.0, time_delta = 0.0, tmp;
+	double remote_allocation_ratio, local_remote_ratio;
+	double *model_res_local = NULL, *model_res_remote = NULL;
 	uint32_t jobid, jobnodes = 0;
 	time_t now = time(NULL);
-	int job_cnt = list_count(job_ptr->job_share);
+	int target_info[4], idx = 0, self_interf = 0;
 	int *interf_apps_index, *interf_apps_nodes;
-	int idx = 0;
+	int job_cnt = list_count(job_ptr->job_share);
+
 
 	debug5("FELIPPE: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
 
 	//only for debug purpose
 	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
+
+	//estimating the what is the allocation local/remote access
+	remote_allocation_ratio = _allocated_remote_ratio(job_ptr);
+	//reading application local/remote ratio
+	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
 
 	if(job_cnt){
     	interf_apps_index = (int*) malloc(job_cnt*sizeof(int));
@@ -18688,46 +18699,71 @@ double _compute_scale(struct job_record *job_ptr){
 		//is higher due the memory nodes
 		jobnodes+=bit_set_count(job_ptr->node_bitmap);
 
+		target_info[0] = job_ptr->sim_executable;
+    	target_info[1] = jobnodes;
+
 		if(is_multi_curve){
 			while ((jobid = (uint32_t) list_next(job_iterator))) {
 				job_tmp = find_job_record(jobid);
+				if(jobid == job_ptr->job_id) self_interf = 1;
 				interf_apps_index[idx]=job_tmp->sim_executable;
-				interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
+				interf_apps_nodes[idx]=bit_set_count(job_tmp->node_bitmap);
+				//interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
 				debug5("FELIPPE: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
 						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
 				idx++;
 
 			}
-			
-			model_res = model_speed(job_ptr->sim_executable,jobnodes,bw_threshold,idx,interf_apps_index,interf_apps_nodes);
-			scale = model_res[0];
-			debug5("FELIPPE: %s multi_curve job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
-					__func__,job_ptr->job_id,scale,model_res[1],model_res[2],bw_threshold,time_delta);
-			free(model_res);
+			target_info[2] = idx;
+    		target_info[3] = LOCAL_SENSITIVITY;
+			model_res_local = model_speed(bw_threshold,target_info,interf_apps_index,interf_apps_nodes);
+			target_info[3] = REMOTE_SENSITIVITY;
+			model_res_remote = model_speed(bw_threshold,target_info,interf_apps_index,interf_apps_nodes);
+
+			debug5("FELIPPE: %s. job_id=%u model_res_local=%.5f model_res_remote=%.5f local_remote_ratio=%.5f remote_allocation_ratio=%.5f",
+					__func__,job_ptr->job_id,model_res_local[0],model_res_remote[0],local_remote_ratio,remote_allocation_ratio);
+
+			scale = (model_res_local[0]*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
+			if(self_interf)
+				scale = (model_res_local[0]*local_remote_ratio*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
+			debug5("FELIPPE: %s multi_curve[%d] job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+					__func__,self_interf,job_ptr->job_id,scale,model_res_local[1],model_res_local[2],bw_threshold,time_delta);
+			free(model_res_local);
+			free(model_res_remote);
 		}
 		else{
 			//single curve. use the slowest speed
 			while ((jobid = (uint32_t) list_next(job_iterator))) {
 				job_tmp = find_job_record(jobid);
+				if(jobid == job_ptr->job_id) self_interf = 1;
 				//BW (15000.0) and rwratio (90) are related to job_tmp
 				//tmp = speed(job_ptr->sim_executable,15000.0,90);
 				interf_apps_index[idx]=job_tmp->sim_executable;
 				// It is one because we want to use the curve created using only one interfering node
 				interf_apps_nodes[idx]=1;
-				model_res = model_speed(job_ptr->sim_executable,jobnodes,1.0,1,interf_apps_index,interf_apps_nodes);
-				tmp = model_res[0];
-				debug5("FELIPPE: %s single_curve job_id=%u job_tmp=%u interf_exec=%u calc_interf_nodes=%u scale=%.5f bw_max=%.5f intef_nodes=%.1f time_elapsed=%e",
-						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],tmp,model_res[1],model_res[2],time_delta);
+				target_info[2] = idx;
+    			target_info[3] = LOCAL_SENSITIVITY;
+				model_res_local = model_speed(1.0,target_info,interf_apps_index,interf_apps_nodes);
+				target_info[3] = REMOTE_SENSITIVITY;
+				model_res_remote = model_speed(1.0,target_info,interf_apps_index,interf_apps_nodes);
+				tmp = (model_res_local[0]*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
+				if(self_interf)
+					tmp = (model_res_local[0]*local_remote_ratio*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
+
+				debug5("FELIPPE: %s single_curve[%d] job_id=%u job_tmp=%u interf_exec=%u calc_interf_nodes=%u scale=%.5f bw_max=%.5f intef_nodes=%.1f time_elapsed=%e",
+						__func__,self_interf,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],tmp,model_res_local[1],model_res_local[2],time_delta);
 				if(scale > tmp) scale = tmp;
-				free(model_res);
+				free(model_res_local);
+				free(model_res_remote);
 			}
 		}
 		list_iterator_destroy(job_iterator);
 		free(interf_apps_index);
 		free(interf_apps_nodes);
 	}//end if(job_cnt)
-	else{//only for debug purpose
-		debug5("FELIPPE: %s job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+	else{//one node multiple memory nodes without interference or full local/remote access
+		scale = (1.0*(1.0-remote_allocation_ratio)+(local_remote_ratio*remote_allocation_ratio));
+		debug5("FELIPPE: %s else job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
 		__func__,job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
 	}
 
@@ -18749,6 +18785,10 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		if((mnodes) &&
 		   (job_ptr->job_id != job_scan_ptr->job_id))
 				is_sharing = true;
+		
+		if((job_ptr->job_id == job_scan_ptr->job_id) &&
+			(bit_set_count(job_ptr->node_bitmap) > 1))
+				is_sharing = true;
 	}
 
 	return is_sharing;
@@ -18759,6 +18799,19 @@ int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *jo
 					job_interf->job_resrcs->memory_pool_bitmap));
 
 	return (mnodes);
+}
+
+double _allocated_remote_ratio(struct job_record *job_ptr){
+	int32_t overlap = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
+						job_ptr->node_bitmap));
+	
+	int32_t nodes = bit_set_count(job_ptr->node_bitmap);
+	int32_t mnodes = bit_set_count(job_ptr->job_resrcs->memory_pool_bitmap);
+
+	double total_access = nodes*mnodes;
+	double remote_ratio = 1.0-(overlap/total_access);
+
+	return (remote_ratio);
 }
 
 #endif
@@ -18800,17 +18853,18 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 	
 	if(!completing){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
-			if(_is_sharing_node(job_ptr,job_scan_ptr)){
+			if(_is_sharing_node(job_ptr,job_scan_ptr)){				
 				list_append(job_ptr->job_share, job_scan_ptr->job_id);
-				list_append(job_scan_ptr->job_share, job_ptr->job_id);
-				overlap = true;
+				if(job_scan_ptr->job_id != job_ptr->job_id)
+					list_append(job_scan_ptr->job_share, job_ptr->job_id);
+				//overlap = true;
 			}
 		}
 	}
-	else{		
-		if(list_count(job_ptr->job_share)) 
-			overlap = true;
-	}
+	//else{		
+	//	if(list_count(job_ptr->job_share)) 
+	//		overlap = true;
+	//}
 	list_iterator_destroy(job_iterator);
 
 	//IF it is 0, then it is first time
@@ -18818,21 +18872,21 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 	job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
 
-	if (!overlap) {
-		job_ptr->speed        = 1.0/job_ptr->time_limit;
-		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
-		debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e model_scaling=%e completing=%d",
-				__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,scale,completing);
-		//only for debug purpose
-		debug5("FELIPPE: _compute_scale job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
-				job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
-	} else {
+	//if (!overlap) {
+	//	job_ptr->speed        = 1.0/job_ptr->time_limit;
+	//	job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
+	//	debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e model_scaling=%e completing=%d",
+	//			__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,scale,completing);
+	//	//only for debug purpose
+	//	debug5("FELIPPE: _compute_scale job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+	//			job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
+	//} else {
 
 		scale = _compute_scale(job_ptr);
 
 		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
-		debug5("FELIPPE: %s job_id=%u [sharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
+		debug5("FELIPPE: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
 				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale,completing);
 
@@ -18843,7 +18897,10 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 	    job_iterator = list_iterator_create(job_ptr->job_share);
 		while ((jobid = (uint32_t) list_next(job_iterator))) {
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
-			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [sharing_nodes]", __func__,job_ptr->job_id,jobid);
+			if(jobid == job_ptr->job_id) // we don't update the already updated job
+				continue;
+			
+			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
 			time_delta = difftime(now,job_scan_ptr->time_delta);
 			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
@@ -18864,12 +18921,12 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s job_id=%u [sharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
+			debug5("FELIPPE: %s job_id=%u [xsharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_limit,scale,completing,count_job_scan_ptr);
 		}
 		list_iterator_destroy(job_iterator);
-	}
+	//}
 
 	if(completing){
 		list_destroy(job_ptr->job_share);

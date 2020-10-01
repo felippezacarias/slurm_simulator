@@ -76,14 +76,17 @@ double predict(double x_,double m,double b);
 
 /*
  * Read the sensitivity curves from the file.
- * Input:  - app_    - value independent
- *         - x50     - buffer to sensitivity curve of 50% rw
- *         - y50     - buffer to speed values of 50% rw
- *         - x100    - buffer to sensitivity curve of 100% rw
- *         - y100    - buffer to speed values of 100% rw
+ * Input:  - app_         - value independent
+ *         - app_proc     - app number of procs
+ *         - interf_nodes - number of interfering remote/local nodes
+ *         - is_local     - boolean to read local or remote sensitivity curve
+ *         - x50          - buffer to sensitivity curve of 50% rw
+ *         - y50          - buffer to speed values of 50% rw
+ *         - x100         - buffer to sensitivity curve of 100% rw
+ *         - y100         - buffer to speed values of 100% rw
  * 
  */
-void read_sensitivity_file(FILE* stream, int app_, int app_proc, int interf_nodes,double* x50,double* y50,
+void read_sensitivity_file(FILE* stream, int app_, int app_proc, int interf_nodes, int is_local, double* x50,double* y50,
                 double* x100,double* y100);
 
 /*
@@ -126,15 +129,25 @@ int boundary(int proc_value, int list_size, int *list, int *lb, int* ub);
  * Input:  - interf_   - id of the interfering app
  *         - interf_procs    - number of procs
  *         - idx            - position in the list
+ *         - is_local       - boolean to use local or remote sensitivity curve
  *         - interf_rwratio - list of values
  *         - interf_bw      - list of values
  * 
  * Return - void
  */
-void interfering_bw_rw(int interf_, int interf_procs, int idx, int *interf_rwratio,double *interf_bw);
+void interfering_bw_rw(int interf_, int interf_procs, int idx, int is_local, int *interf_rwratio,double *interf_bw);
+
+/*
+ * Auxiliar function to return the application local to remote memory ratio access
+ * Input:  - target_   - id of the target app
+ *         - target_procs    - number of procs
+ * 
+ * Return - double - the ratio value
+ */
+double read_app_remote_ratio(int target_, int target_procs);
 
 
-void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x50,double* y50,
+void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, int is_local, double* x50,double* y50,
             double* x100,double* y100);
 
 
@@ -145,21 +158,24 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, double* x5
  *         - app_proc       - Number of target application's nodes
  *         - max_bw         - Max bandwidth of the interfering apps
  *         - low_rw         - Lowest rw ratio of the interfering apps
- *         - nodes         - Sum of nodes sharing with the interfering apps
+ *         - nodes          - Sum of nodes sharing with the interfering apps
+ *         - is_local       - boolean to use local or remote sensitivity curve
  */
-double speed(int app_index, int app_proc, double max_bw, int low_rw, int nodes);
+double speed(int app_index, int app_proc, double max_bw, int low_rw, int nodes, int is_local);
 
 /*
  * Interface function to return speed value.
- * Input:  - app_index      - simulated application index to look up 
+ * Input:  - bw_threshold   - Threshold to be used in case of the multi curves approach
+ *         - target_info - array with target execution info. The values are: 
+ *                       - app_index      - simulated application index to look up 
  *                              in the referencefile
- *         - app_nodes      - number of nodes of the target app
- *         - bw_threshold   - Threshold to be used in case of the multi curves approach
- *         - interf_n       - number of entries on interf list
+ *                       - app_nodes        - number of nodes of the target app
+ *                       - interf_n         - number of entries on interf list
+ *                       - is_target_local  - boolean to use local or remote sensitivity curve
  *         - interf_apps_index - list of index of sharing apps
  *         - interf_apps_nodes - list of nodes of sharing apps
  */
-double* model_speed(int app_index, int app_nodes, double bw_threshold, int interf_n, int* interf_apps_index, int* interf_apps_nodes);
+double* model_speed(double bw_threshold, int* target_info, int* interf_apps_index, int* interf_apps_nodes);
 
 void swap(int* xp, int* yp);
 
