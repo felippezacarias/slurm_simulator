@@ -191,6 +191,7 @@ struct jobcomp_info {
 	uint32_t min_nodes;
 	uint8_t share_res;	
 	uint16_t cpus_per_task;
+	uint32_t hardlimit;
 };
 
 static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
@@ -265,7 +266,8 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 	if ((job->time_limit == NO_VAL) && job->part_ptr)
 		j->limit = job->part_ptr->max_time;
 	else
-		j->limit = job->time_limit;
+		j->limit = job->time_min;
+	j->hardlimit = job->time_limit;
 	j->submit = job->details ? job->details->submit_time:job->start_time;
 	j->batch_flag = job->batch_flag;
 	j->nodes = xstrdup (job->nodes);
@@ -480,7 +482,8 @@ static char ** _create_environment (struct jobcomp_info *job)
 	//mins2time_str(job->limit, time_str, sizeof(time_str));
 	//_env_append (&env, "LIMIT", time_str);
 	/* FVZ: appending new info */
-	_env_append_fmt (&env, "LIMIT", "%u", job->limit);	
+	_env_append_fmt (&env, "LIMIT", "%u", job->limit);
+	_env_append_fmt (&env, "HARDLIMIT", "%u", job->hardlimit);	
 	_env_append (&env, "MEMORYNODES", job->memory_nodes);
 	_env_append_fmt (&env, "MEMORYNODESCNT","%u", job->mnodes);
 	_env_append_fmt (&env, "REQNUMTASKS","%u", job->num_tasks);

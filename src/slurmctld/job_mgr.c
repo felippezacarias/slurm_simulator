@@ -18873,7 +18873,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 	job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
 
 	//if (!overlap) {
-	//	job_ptr->speed        = 1.0/job_ptr->time_limit;
+	//	job_ptr->speed        = 1.0/job_ptr->time_min;
 	//	job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) / job_ptr->speed);
 	//	debug5("FELIPPE %s job_id=%u [in isolation] elapsed=%e speed=%e time_left=%e time_delta=%e model_scaling=%e completing=%d",
 	//			__func__,job_ptr->job_id, job_ptr->time_elapsed, job_ptr->speed, job_ptr->time_left,time_delta,scale,completing);
@@ -18884,11 +18884,11 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 		scale = _compute_scale(job_ptr);
 
-		job_ptr->speed        = ((1.0/job_ptr->time_limit)*(scale)); 
+		job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
 		debug5("FELIPPE: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
-				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_limit,scale,completing);
+				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_min,scale,completing);
 
 		/* FVZ: If it is not completing the job will run in contention
 		/* we need to update the simulator's expect time to finish with the new time_left */
@@ -18914,7 +18914,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			scale = _compute_scale(job_scan_ptr);
 
-			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_limit)*(scale));
+			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_min)*(scale));
 
 			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
 			job_scan_ptr->time_delta = now;
@@ -18923,7 +18923,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
 			debug5("FELIPPE: %s job_id=%u [xsharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
-					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_limit,scale,completing,count_job_scan_ptr);
+					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_min,scale,completing,count_job_scan_ptr);
 		}
 		list_iterator_destroy(job_iterator);
 	//}

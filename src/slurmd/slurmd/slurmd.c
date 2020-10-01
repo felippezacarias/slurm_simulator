@@ -704,8 +704,8 @@ simulator_event_t *_finished_sim_jobs(time_t now){
 	aux = head_simulator_event;
 	tmp = aux;
 	while(aux){
-		if((now >= aux->when) ||
-			(now >= aux->hardwhen)){
+		//if((now >= aux->when) || (now >= aux->hardwhen)){
+		if(now >= aux->when){
 				break;
 			}
 			tmp = aux;
@@ -754,7 +754,8 @@ _simulator_helper(void *arg)
 				break;
 			int event_jid;
 			int status = 0; //0 means success
-			if(aux->when > aux->hardwhen) status = JOB_FAILED;
+			//If it is necessary a hardlimit it is already done
+			//if(aux->when > aux->hardwhen) status = JOB_FAILED;
 			event_jid = aux->job_id;
 			aux->next = head_sim_completed_jobs;
 			head_sim_completed_jobs = aux;

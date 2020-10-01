@@ -512,8 +512,15 @@ generateJob(job_trace_t* jobd) {
 	/* FVZ: I will change this timelimit to be the duration, because
 	 * because we are going to dynamically change due to the speed. The 
 	 * hard job limit will be sent on SIM_JOB msg */
-	//dmesg.time_limit    = jobd->wclimit;
-	dmesg.time_limit    = jobd->duration;
+	if(jobd->duration == 0){
+		dmesg.time_limit    = jobd->duration;
+		dmesg.time_min    = jobd->duration;
+	}
+	else{
+		dmesg.time_limit    = jobd->wclimit;
+		dmesg.time_min    = jobd->duration;
+	}
+
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
 	uidt = userIdFromName(jobd->username, &gidt);

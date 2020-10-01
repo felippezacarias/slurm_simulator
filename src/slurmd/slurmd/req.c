@@ -546,6 +546,7 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 	new_event->job_id = req->job_id;
 	new_event->type = REQUEST_COMPLETE_BATCH_SCRIPT;
 	new_event->when = now + temp_ptr->duration;
+	//If necessary it is already implemented
 	new_event->hardwhen = now + temp_ptr->wclimit;
 	new_event->nodelist = strdup(req->nodes);
 	new_event->next = NULL;
