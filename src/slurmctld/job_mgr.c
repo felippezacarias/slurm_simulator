@@ -18802,14 +18802,45 @@ int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *jo
 }
 
 double _allocated_remote_ratio(struct job_record *job_ptr){
-	int32_t overlap = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-						job_ptr->node_bitmap));
-	
-	int32_t nodes = bit_set_count(job_ptr->node_bitmap);
-	int32_t mnodes = bit_set_count(job_ptr->job_resrcs->memory_pool_bitmap);
+	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
+	uint64_t min_cpus, memory, mem_tot, local = 0;
+	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
+	uint16_t cpus;
+	double remote_ratio;
+	int idx_mem = 0, idx_cpu = 0, i, first, last;
 
-	double total_access = nodes*mnodes;
-	double remote_ratio = 1.0-(overlap/total_access);
+	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+
+	mem_tot = (min_cpus * mem_per_cpu);
+
+
+	first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
+	if (first != -1)
+		last  = bit_fls(job_ptr->job_resrcs->memory_pool_bitmap);
+	else
+		last = first - 1;
+	
+	for (i = first; i <= last; i++) {
+		//If the memory node and cpu node overlaps we count as local
+		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))			
+			continue;
+
+		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
+		idx_mem++;
+
+		if(!bit_test(job_ptr->job_resrcs->node_bitmap, i))
+			continue;
+
+		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
+
+		local += MIN(memory,(cpus*mem_per_cpu));
+		idx_cpu++;
+
+	}
+
+	debug5("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
+
+	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
 
 	return (remote_ratio);
 }
