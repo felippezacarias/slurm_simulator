@@ -472,7 +472,8 @@ static char ** _create_environment (struct jobcomp_info *job)
 	//mins2time_str(job->limit, time_str, sizeof(time_str));
 	//_env_append (&env, "LIMIT", time_str);
 	/* FVZ: appending new info */
-	_env_append_fmt (&env, "LIMIT", "%u", job->limit);	
+	_env_append_fmt (&env, "LIMIT", "%u", job->limit);
+	_env_append_fmt (&env, "HARDLIMIT", "%u", job->limit);	
 	_env_append_fmt (&env, "REQNUMTASKS","%u", job->num_tasks);
 	_env_append_fmt (&env, "REQTASKSPERNODE","%u", job->ntasks_per_node);
 	_env_append_fmt (&env, "REQMINCPUS","%u", job->min_cpus);
