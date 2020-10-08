@@ -98,7 +98,7 @@ int main(int argc, char* argv[])
             }   
             if(i==1) {
                 if (first_arrival == NO_VAL64) first_arrival = atoi(p);
-                job_arr[idx].submit = atoi(p) - first_arrival;
+                job_arr[idx].submit = 100 + atoi(p) - first_arrival;
                 //job_arr[idx].submit = submission;
                 //submission+=5;
                 //printf("Submit time: %s -> %ld -- %ld\n", p,job_arr[idx].submit,first_arrival);

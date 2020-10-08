@@ -311,16 +311,16 @@ extern void *builtin_agent(void *args)
 
 	_load_config();
 	last_sched_time = time(NULL);
-#ifdef SLURM_SIMULATOR
-	open_BF_sync_semaphore_pg();
-#endif
+	#ifdef SLURM_SIMULATOR
+		open_BF_sync_semaphore_pg();
+	#endif
 	while (!stop_builtin) {
-#ifdef SLURM_SIMULATOR
-		sem_wait(mutex_bf_pg);
-#endif
-#ifndef SLURM_SIMULATOR
-		_my_sleep(builtin_interval);
-#endif
+		#ifdef SLURM_SIMULATOR
+				sem_wait(mutex_bf_pg);
+		#endif
+		#ifndef SLURM_SIMULATOR
+				_my_sleep((int64_t) builtin_interval * 1000000);
+		#endif
 		if (stop_builtin){
 			#ifdef SLURM_SIMULATOR
 			sem_post(mutex_bf_done_pg);
@@ -333,17 +333,24 @@ extern void *builtin_agent(void *args)
 		}
 		now = time(NULL);
 		wait_time = difftime(now, last_sched_time);
-		if ((wait_time < builtin_interval))
-			continue;
+		#ifndef SLURM_SIMULATOR
+			if ((wait_time < builtin_interval))
+				continue;
+		#endif
 
-		lock_slurmctld(all_locks);
-		_compute_start_times();
-		last_sched_time = time(NULL);
-		(void) bb_g_job_try_stage_in();
-		unlock_slurmctld(all_locks);
-#ifdef SLURM_SIMULATOR
-		sem_post(mutex_bf_done_pg);
-#endif
+		#ifdef SLURM_SIMULATOR
+			if (!((wait_time < builtin_interval))){
+		#endif
+
+				lock_slurmctld(all_locks);
+				_compute_start_times();
+				last_sched_time = time(NULL);
+				(void) bb_g_job_try_stage_in();
+				unlock_slurmctld(all_locks);
+		#ifdef SLURM_SIMULATOR
+				}
+				sem_post(mutex_bf_done_pg);
+		#endif
 	}
 #ifdef SLURM_SIMULATOR
 	close_BF_sync_semaphore();
