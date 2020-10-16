@@ -2001,7 +2001,7 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 
 	shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
 					cr_enabled);
-	debug5("FELIPPE: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
+	//debug5("FELIPPE: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
 
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
@@ -2812,7 +2812,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	can_reboot = node_features_g_user_update(job_ptr->user_id);
 	error_code = _build_node_list(job_ptr, &node_set_ptr, &node_set_size,
 				      err_msg, test_only, can_reboot);
-  	debug5("FELIPPE: %s after _build_node_list jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
+  	//debug5("FELIPPE: %s after _build_node_list jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	if (error_code)
 		return error_code;
 	if (node_set_ptr == NULL)	/* Should never be true */
@@ -2870,8 +2870,8 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	} else
 		selected_node_cnt = req_nodes;
 
+	/* FVZ: Debug 
 	#ifdef SLURM_SIMULATOR
-	/* FVZ: Debug */
 	if(select_bitmap){
 		char *name;
 		name = bitmap2node_name(select_bitmap);
@@ -2879,6 +2879,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		xfree(name);
 	}
 	#endif
+	*/
 
 	/* FVZ: dealing with cancelled jobs */
 	#ifdef SLURM_SIMULATOR
@@ -3256,7 +3257,7 @@ cleanup:
 			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 	}
 
-	debug5("FELIPPE: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
+	//debug5("FELIPPE: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	return error_code;
 }
 
@@ -3926,7 +3927,7 @@ static int _build_node_list(struct job_record *job_ptr,
 
 	/* FVZ: first check if the required memory fits using all configs (different node sets) within the partition */
 	config_iterator = list_iterator_create(config_list);
-	debug5("FELIPPE: %s checking total partition memory avialable",__func__);
+	//debug5("FELIPPE: %s checking total partition memory avialable",__func__);
 	while ((config_ptr = (struct config_record *)
 			list_next(config_iterator))) {
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
@@ -3937,7 +3938,7 @@ static int _build_node_list(struct job_record *job_ptr,
 			FREE_NULL_BITMAP(config_nodes_part_bitmap);
 	}
 	list_iterator_destroy(config_iterator);
-	debug5("FELIPPE: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
+	//debug5("FELIPPE: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
 
 	config_iterator = list_iterator_create(config_list);
 	while ((config_ptr = (struct config_record *)

@@ -422,7 +422,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 	job_feature_t *feature_base;
 
 	if (has_xand || feat_cnt) {
-		debug5("FELIPPE: backfill: %s if (feat_cnt)  jobid %u",__func__,job_ptr->job_id);
+		//debug5("FELIPPE: backfill: %s if (feat_cnt)  jobid %u",__func__,job_ptr->job_id);
 		/*
 		 * Cache the feature information and test the individual
 		 * features (or sets of features in parenthesis), one at a time
@@ -492,7 +492,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		/* Restore the original feature information */
 		detail_ptr->feature_list = feature_cache;
 	} else if (has_xor) {
-		debug5("FELIPPE: backfill: %s else if (has_xor)  jobid %u",__func__,job_ptr->job_id);
+		//debug5("FELIPPE: backfill: %s else if (has_xor)  jobid %u",__func__,job_ptr->job_id);
 		/*
 		 * Cache the feature information and test the individual
 		 * features (or sets of features in parenthesis), one at a time
@@ -562,7 +562,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 		/* Restore the original feature information */
 		detail_ptr->feature_list = feature_cache;
 	} else if (detail_ptr->feature_list) {
-		debug5("FELIPPE: backfill: %s else if (detail_ptr->feature_list)  jobid %u",__func__,job_ptr->job_id);
+		//debug5("FELIPPE: backfill: %s else if (detail_ptr->feature_list)  jobid %u",__func__,job_ptr->job_id);
 		if ((job_req_node_filter(job_ptr, *avail_bitmap, true) !=
 		     SLURM_SUCCESS) ||
 		    (bit_set_count(*avail_bitmap) < min_nodes)) {
@@ -579,7 +579,7 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 			FREE_NULL_LIST(preemptee_job_list);
 		}
 	} else {
-		debug5("FELIPPE: backfill: %s else jobid %u",__func__,job_ptr->job_id);
+		//debug5("FELIPPE: backfill: %s else jobid %u",__func__,job_ptr->job_id);
 		/* Try to schedule the job. First on dedicated nodes
 		 * then on shared nodes (if so configured). */
 		uint16_t orig_shared;
@@ -603,9 +603,9 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 				       &preemptee_job_list,
 				       exc_core_bitmap);
 		FREE_NULL_LIST(preemptee_job_list);
-		debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
-		if(*avail_bitmap)
-			debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
+		//debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+		//if(*avail_bitmap)
+		//	debug5("FELIPPE: backfill: %s after select_g_job_test 1 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
 
 
 		job_ptr->details->share_res = orig_shared;
@@ -621,9 +621,9 @@ static int  _try_sched(struct job_record *job_ptr, bitstr_t **avail_bitmap,
 					       &preemptee_job_list,
 					       exc_core_bitmap);
 			FREE_NULL_LIST(preemptee_job_list);
-			debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
-			if(*avail_bitmap)
-				debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
+			//debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+			//if(*avail_bitmap)
+			//	debug5("FELIPPE: backfill: %s after select_g_job_test 2 jobid %u avail_bitmap %d",__func__,job_ptr->job_id,bit_set_count(*avail_bitmap));
 
 		} else
 			FREE_NULL_BITMAP(tmp_bitmap);
@@ -2053,8 +2053,8 @@ next_task:
 		/* Determine minimum and maximum node counts */
 		error_code = get_node_cnts(job_ptr, qos_flags, part_ptr,
 					   &min_nodes, &req_nodes, &max_nodes);
-		debug5("FELIPPE: backfill: %s after get_node_cnts jobid %u min_nodes %u max_nodes %u req_nodes %u error_code %d",
-				__func__,job_ptr->job_id,min_nodes,max_nodes,req_nodes,error_code);
+		//debug5("FELIPPE: backfill: %s after get_node_cnts jobid %u min_nodes %u max_nodes %u req_nodes %u error_code %d",
+		//		__func__,job_ptr->job_id,min_nodes,max_nodes,req_nodes,error_code);
 
 		if (error_code == ESLURM_ACCOUNTING_POLICY) {
 			if (debug_flags & DEBUG_FLAG_BACKFILL)
@@ -2373,10 +2373,10 @@ next_task:
 		if (test_fini != 1) {
 			/* Either active_bitmap was NULL or not usable by the
 			 * job. Test using avail_bitmap instead */
-			debug5("FELIPPE: backfill: %s before _try_sched jobid %u avail_nodes %d",__func__,job_ptr->job_id,bit_set_count(avail_bitmap));
+			//debug5("FELIPPE: backfill: %s before _try_sched jobid %u avail_nodes %d",__func__,job_ptr->job_id,bit_set_count(avail_bitmap));
 			j = _try_sched(job_ptr, &avail_bitmap, min_nodes,
 				       max_nodes, req_nodes, exc_core_bitmap);
-   			debug5("FELIPPE: backfill: %s after _try_sched jobid %u test_fini %d error_code %d",__func__,job_ptr->job_id,test_fini,j);
+   			//debug5("FELIPPE: backfill: %s after _try_sched jobid %u test_fini %d error_code %d",__func__,job_ptr->job_id,test_fini,j);
 			if (test_fini == 0) {
 				job_ptr->details->share_res = save_share_res;
 				job_ptr->details->whole_node = save_whole_node;
@@ -2454,7 +2454,7 @@ next_task:
 			}
 
 			rc = _start_job(job_ptr, resv_bitmap);
-			debug5("FELIPPE: backfill: %s after _start_job jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+			//debug5("FELIPPE: backfill: %s after _start_job jobid %u error_code %d",__func__,job_ptr->job_id,rc);
 			/* FVZ: Dealing with cancelled jobs.
 				the plugin is ready to execute the job, but we
 				do not execute it. */
@@ -2895,7 +2895,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 	bool is_job_array_head = false;
 	static uint32_t fail_jobid = 0;
 
-	debug5("FELIPPE: backfill: %s jobid %u",__func__,job_ptr->job_id);
+	//debug5("FELIPPE: backfill: %s jobid %u",__func__,job_ptr->job_id);
 
 
 	if (job_ptr->details->exc_node_bitmap) {
@@ -2907,7 +2907,7 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 		is_job_array_head = true;
 	rc = select_nodes(job_ptr, false, NULL, NULL, false,
 			  SLURMDB_JOB_FLAG_BACKFILL);
-	debug5("FELIPPE: backfill: %s after select_nodes jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+	//debug5("FELIPPE: backfill: %s after select_nodes jobid %u error_code %d",__func__,job_ptr->job_id,rc);
 	/* FVZ: Dealing with cancelled jobs */
 	#ifdef SLURM_SIMULATOR		
 		if((job_ptr->time_limit == 0)){

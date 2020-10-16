@@ -3847,8 +3847,8 @@ extern void make_node_comp(struct node_record *node_ptr,
 	uint32_t node_flags;
 	time_t now = time(NULL);
 
-	debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u state %u no_share_job_cnt %u",
-			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state,node_ptr->no_share_job_cnt);
+	//debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u state %u no_share_job_cnt %u",
+	//		__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state,node_ptr->no_share_job_cnt);
 
 	xassert(node_ptr);
 	if (suspended) {
@@ -3885,8 +3885,8 @@ extern void make_node_comp(struct node_record *node_ptr,
 	}
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 
-	debug5("FELIPPE: %s job_id %u node %s comp_job_cnt %u",
-			__func__,job_ptr->job_id,node_ptr->name,node_ptr->comp_job_cnt);
+	//debug5("FELIPPE: %s job_id %u node %s comp_job_cnt %u",
+	//		__func__,job_ptr->job_id,node_ptr->name,node_ptr->comp_job_cnt);
 
 	if ((node_ptr->run_job_cnt  == 0) &&
 	    (node_ptr->comp_job_cnt == 0)) {
@@ -3950,7 +3950,7 @@ void make_node_idle(struct node_record *node_ptr,
 	time_t now = time(NULL);
 	bitstr_t *node_bitmap = NULL;
 
-	debug5("FELIPPE: %s job_id %u name %s",__func__,job_ptr->job_id,node_ptr->name);
+	//debug5("FELIPPE: %s job_id %u name %s",__func__,job_ptr->job_id,node_ptr->name);
 
 	if (job_ptr) {
 		if (job_ptr->node_bitmap_cg)
@@ -3961,7 +3961,7 @@ void make_node_idle(struct node_record *node_ptr,
 			bit_or(node_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
 		}
 
-		debug5("FELIPPE: %s job_id %u node_bitmap %d",__func__,job_ptr->job_id,bit_set_count(node_bitmap));
+		//debug5("FELIPPE: %s job_id %u node_bitmap %d",__func__,job_ptr->job_id,bit_set_count(node_bitmap));
 
 	}
 
@@ -4035,8 +4035,8 @@ void make_node_idle(struct node_record *node_ptr,
 		}
 	}
 
-	debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u comp_job_cnt %u",
-			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
+	//debug5("FELIPPE: %s job_id %u node %s run_job_cnt %u comp_job_cnt %u",
+	//		__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
 
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 	if (IS_NODE_DOWN(node_ptr)) {
@@ -4070,7 +4070,7 @@ void make_node_idle(struct node_record *node_ptr,
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
 			make_node_avail(inx);
 	} else {
-		debug5("FELIPPE: %s job_id %u node %s set to idle",__func__,job_ptr->job_id,node_ptr->name);
+		//debug5("FELIPPE: %s job_id %u node %s set to idle",__func__,job_ptr->job_id,node_ptr->name);
 		node_ptr->node_state = NODE_STATE_IDLE | node_flags;
 		if (!IS_NODE_NO_RESPOND(node_ptr) &&
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
