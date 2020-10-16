@@ -277,8 +277,6 @@ static int _update_sim_job_status(struct job_record *job_ptr);
 double _compute_scale(struct job_record *job_ptr);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
-double _allocated_remote_ratio(struct job_record *job_ptr);
-
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
 {
@@ -15157,7 +15155,7 @@ extern bool job_epilog_complete(uint32_t job_id, char *node_name,
 	if (job_ptr == NULL)
 		return true;
 
-	debug5("FELIPPE: %s job_id %u name %s",__func__,job_ptr->job_id,node_name);
+	debug5("FELIPPE: %s job_id %u name %s job_nodes %u",__func__,job_ptr->job_id,node_name,job_ptr->node_cnt);
 
 	trace_job(job_ptr, __func__, "enter");
 
@@ -18686,7 +18684,7 @@ double _compute_scale(struct job_record *job_ptr){
 	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
 
 	//estimating the what is the allocation local/remote access
-	remote_allocation_ratio = _allocated_remote_ratio(job_ptr);
+	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr);
 	//reading application local/remote ratio
 	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
 
@@ -18799,100 +18797,6 @@ int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *jo
 					job_interf->job_resrcs->memory_pool_bitmap));
 
 	return (mnodes);
-}
-
-//keeping for futher usage
-double _allocated_remote_ratio_clever(struct job_record *job_ptr){
-	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
-	uint64_t min_cpus, memory, mem_tot, local = 0;
-	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
-	uint16_t cpus;
-	double remote_ratio;
-	int idx_mem = 0, idx_cpu = 0, i, first, last;
-
-	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
-
-	mem_tot = (min_cpus * mem_per_cpu);
-
-
-	first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
-	if (first != -1)
-		last  = bit_fls(job_ptr->job_resrcs->memory_pool_bitmap);
-	else
-		last = first - 1;
-	
-	for (i = first; i <= last; i++) {
-		//If the memory node and cpu node overlaps we count as local
-		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))			
-			continue;
-
-		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
-		idx_mem++;
-
-		if(!bit_test(job_ptr->job_resrcs->node_bitmap, i))
-			continue;
-
-		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
-
-		local += MIN(memory,(cpus*mem_per_cpu));
-		idx_cpu++;
-
-	}
-
-	debug5("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
-
-	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
-
-	return (remote_ratio);
-}
-
-double _allocated_remote_ratio(struct job_record *job_ptr){
-	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
-	uint64_t min_cpus, memory, mem_tot, local = 0;
-	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
-	uint16_t cpus;
-	double remote_ratio;
-	int idx_mem = 0, idx_cpu = 0, i, first, last;
-
-	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
-
-	mem_tot = (min_cpus * mem_per_cpu);
-
-
-	first = bit_ffs(job_ptr->job_resrcs->node_bitmap);
-	if (first != -1)
-		last  = bit_fls(job_ptr->job_resrcs->node_bitmap);
-	else
-		last = first - 1;
-	
-	for (i = first; i <= last; i++) {
-		//If the memory node and cpu node overlaps we count as local
-		if (!bit_test(job_ptr->job_resrcs->node_bitmap, i))			
-			continue;
-
-		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
-		idx_cpu++;
-
-		if(!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
-			continue;
-
-		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
-		idx_mem++;		
-
-		if((cpus*mem_per_cpu) == memory){
-			local += memory;
-		}
-		else{
-			local += (cpus*mem_per_cpu);
-			break;
-		}
-	}
-
-	debug5("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
-
-	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
-
-	return (remote_ratio);
 }
 
 #endif

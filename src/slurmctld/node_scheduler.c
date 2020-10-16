@@ -412,8 +412,8 @@ extern void allocate_nodes(struct job_record *job_ptr)
 	}
 
 	/* FVZ: Dealing with memory nodes */
-	debug5("FELIPPE: %s job_id %u - nodes %u memory_nodes %u memory_pool nodes %s share %u",
-			__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res);
+	debug5("FELIPPE: %s job_id %u - nodes %u memory_nodes %u memory_pool nodes %s share %u job_nodes %u",
+			__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res,job_ptr->node_cnt);
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 	     i++, node_ptr++) {
 		if (!(bit_test(job_ptr->node_bitmap, i) || 
@@ -570,8 +570,8 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 				front_end_ptr->node_state = NODE_STATE_IDLE |
 							    state_flags;
 			}
-			debug5("FELIPPE: %s if (job_ptr->batch_host && frontend job_id %u, frontend %s nodes %s memory_nodes %s",
-					__func__,job_ptr->job_id,front_end_ptr->name,job_ptr->job_resrcs->nodes,job_ptr->job_resrcs->memory_nodes);
+			debug5("FELIPPE: %s if (job_ptr->batch_host && frontend job_id %u, frontend %s nodes %s memory_nodes %s job_nodes %u",
+					__func__,job_ptr->job_id,front_end_ptr->name,job_ptr->job_resrcs->nodes,job_ptr->job_resrcs->memory_nodes,job_ptr->node_cnt);
 			for (i = 0, node_ptr = node_record_table_ptr;
 			     i < node_record_count; i++, node_ptr++) {
 				if (!(bit_test(job_ptr->node_bitmap, i) || 

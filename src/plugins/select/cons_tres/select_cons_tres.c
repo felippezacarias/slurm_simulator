@@ -1779,6 +1779,10 @@ extern int select_p_job_resume(struct job_record *job_ptr, bool indf_susp)
 	return _add_job_to_res(job_ptr, 2);
 }
 
+extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
+{
+	return 1.0;
+}
 
 extern bitstr_t *select_p_step_pick_nodes(struct job_record *job_ptr,
 					  select_jobinfo_t *jobinfo,

@@ -554,6 +554,8 @@ enum select_plugin_type {
 	/* 100 unused (originally for BlueGene) */
 	SELECT_PLUGIN_CONS_RES       = 101, /* Cons Res on a normal system */
 	SELECT_PLUGIN_LINEAR         = 102, /* Linear on a normal system */
+	SELECT_PLUGIN_CONS_RES_NAIVE = 103, /* Cons Res on a normal system */
+	SELECT_PLUGIN_CONS_STRAWMAN = 104, /* Cons Res on a normal system */
 	/* 103 unused (originally used for BGQ) */
 	/* 104 unused (originally used for Cray/ALPS with select/linear) */
 	/* 105 unused (originally used for Cray/ALPS with select/cons_res) */

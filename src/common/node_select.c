@@ -81,6 +81,7 @@ const char *node_select_syms[] = {
 	"select_p_job_fini",
 	"select_p_job_suspend",
 	"select_p_job_resume",
+	"select_p_allocated_remote_ratio",
 	"select_p_step_pick_nodes",
 	"select_p_step_start",
 	"select_p_step_finish",
@@ -126,6 +127,8 @@ static char *_plugin_id2name(int plugin_id)
 
 	if (plugin_id == SELECT_PLUGIN_CONS_RES)
 		return "cons_res";
+	if (plugin_id == SELECT_PLUGIN_CONS_RES_NAIVE)
+		return "cons_res_naive";
 	if (plugin_id == SELECT_PLUGIN_LINEAR)
 		return "linear";
 	if (plugin_id == SELECT_PLUGIN_SERIAL)
@@ -677,6 +680,15 @@ extern int select_g_job_resume(struct job_record *job_ptr, bool indf_susp)
 
 	return (*(ops[select_context_default].job_resume))
 		(job_ptr, indf_susp);
+}
+
+extern double select_g_allocated_remote_ratio(struct job_record *job_ptr)
+{
+	if (slurm_select_init(0) < 0)
+		return SLURM_ERROR;
+
+	return (*(ops[select_context_default].allocated_remote_ratio))
+		(job_ptr);
 }
 
 /*

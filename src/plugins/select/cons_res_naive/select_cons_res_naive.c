@@ -1,5 +1,5 @@
 /*****************************************************************************\
- *  select_cons_res.c - node selection plugin supporting consumable
+ *  select_cons_res_naive.c - node selection plugin supporting consumable
  *  resources policies.
  *****************************************************************************\
  *
@@ -102,7 +102,7 @@
 #include "src/common/slurm_selecttype_info.h"
 #include "src/common/assoc_mgr.h"
 #include "src/common/xstring.h"
-#include "select_cons_res.h"
+#include "select_cons_res_naive.h"
 
 #include "dist_tasks.h"
 #include "job_test.h"
@@ -169,8 +169,8 @@ slurmctld_config_t slurmctld_config;
  * (major.minor.micro combined into a single number).
  */
 const char plugin_name[] = "Consumable Resources (CR) Node Selection plugin";
-const char plugin_type[] = "select/cons_res";
-const uint32_t plugin_id      = SELECT_PLUGIN_CONS_RES;
+const char plugin_type[] = "select/cons_res_naive";
+const uint32_t plugin_id      = SELECT_PLUGIN_CONS_RES_NAIVE;
 const uint32_t plugin_version = SLURM_VERSION_NUMBER;
 const uint32_t pstate_version = 7;	/* version control on saved state */
 
@@ -2573,34 +2573,39 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 	int idx_mem = 0, idx_cpu = 0, i, first, last;
 
 	xassert(job_ptr);
-
+	
 	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
 
 	mem_tot = (min_cpus * mem_per_cpu);
 
 
-	first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
+	first = bit_ffs(job_ptr->job_resrcs->node_bitmap);
 	if (first != -1)
-		last  = bit_fls(job_ptr->job_resrcs->memory_pool_bitmap);
+		last  = bit_fls(job_ptr->job_resrcs->node_bitmap);
 	else
 		last = first - 1;
 	
 	for (i = first; i <= last; i++) {
 		//If the memory node and cpu node overlaps we count as local
-		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))			
-			continue;
-
-		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
-		idx_mem++;
-
-		if(!bit_test(job_ptr->job_resrcs->node_bitmap, i))
+		if (!bit_test(job_ptr->job_resrcs->node_bitmap, i))			
 			continue;
 
 		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
-
-		local += MIN(memory,(cpus*mem_per_cpu));
 		idx_cpu++;
 
+		if(!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))
+			break;
+
+		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
+		idx_mem++;		
+
+		if((cpus*mem_per_cpu) == memory){
+			local += memory;
+		}
+		else{
+			local += MIN(memory,(cpus*mem_per_cpu));
+			break;
+		}
 	}
 
 	debug5("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
