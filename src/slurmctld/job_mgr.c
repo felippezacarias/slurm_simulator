@@ -18683,7 +18683,7 @@ double _compute_scale(struct job_record *job_ptr){
 	//only for debug purpose
 	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
 
-	//estimating the what is the allocation local/remote access
+	//estimating  what is the allocation local/remote access
 	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr);
 	//reading application local/remote ratio
 	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
@@ -18770,7 +18770,11 @@ double _compute_scale(struct job_record *job_ptr){
 
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr){
 
+	uint64_t memory;
+	uint16_t cpus;
 	bool is_sharing = false;
+	int plugin_id = select_get_plugin_id();
+	int mem, nodes, i, first, last, idx = 0;
 
 	//if don't ask for exclusive node and is running
 	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
@@ -18778,15 +18782,48 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
 						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
 
-		debug5("FELIPPE: %s job_id=%u job_scan_id=%u mnodesxmnodes=%d ",__func__,job_ptr->job_id,job_scan_ptr->job_id,mnodes);
+		nodes = bit_set_count(job_ptr->node_bitmap);
+
+		debug5("FELIPPE: %s job_id=%u job_scan_id=%u mnodesxmnodes=%d",__func__,job_ptr->job_id,job_scan_ptr->job_id,mnodes);
 
 		if((mnodes) &&
 		   (job_ptr->job_id != job_scan_ptr->job_id))
 				is_sharing = true;
 		
-		if((job_ptr->job_id == job_scan_ptr->job_id) &&
-			(bit_set_count(job_ptr->node_bitmap) > 1))
-				is_sharing = true;
+		if((job_ptr->job_id == job_scan_ptr->job_id)){
+			if((bit_equal(job_ptr->node_bitmap,
+						job_ptr->job_resrcs->memory_pool_bitmap))){
+				first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
+				if (first != -1)
+					last  = bit_fls(job_ptr->job_resrcs->memory_pool_bitmap);
+				else
+					last = first - 1;
+				
+				for (i = first; i <= last; i++) {
+					if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))			
+						continue;
+
+					memory = job_ptr->job_resrcs->memory_allocated[idx];
+
+					if(!bit_test(job_ptr->job_resrcs->node_bitmap, i)){
+						if(nodes > 1)
+							is_sharing = true;
+						break;
+					}
+
+					cpus = job_ptr->job_resrcs->cpus[idx];
+					idx++;
+
+					if(memory != (cpus*job_ptr->details->pn_min_memory))
+						is_sharing = true;
+						break;
+				}
+			}
+			else{
+				if(nodes > 1)
+					is_sharing = true;
+			}
+		}
 	}
 
 	return is_sharing;

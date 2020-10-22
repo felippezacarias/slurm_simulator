@@ -141,7 +141,8 @@ int main(int argc, char* argv[])
         }
 
         //Default not to set
-        job_arr[idx].shared = NO_VAL;
+        //job_arr[idx].shared = NO_VAL;
+        job_arr[idx].shared = 0;
         job_arr[idx].min_nodes = NO_VAL;
         job_arr[idx].cpus_per_task = NO_VAL;        
 
