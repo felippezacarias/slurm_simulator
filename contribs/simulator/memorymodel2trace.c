@@ -49,7 +49,7 @@ typedef struct job_trace {
 
 int main(int argc, char* argv[])
 {
-    int nrecs, i, submission = 0, is_real;
+    int nrecs, i, submission = 100, is_real;
     long first_arrival = NO_VAL64;
     int idx=0, errs=0, share = 0, mem_mb = 0;
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
@@ -97,10 +97,10 @@ int main(int argc, char* argv[])
                 //printf("[%d] JOBID [%d]\n", idx+2, job_arr[idx].job_id ); 
             }   
             if(i==1) {
-                if (first_arrival == NO_VAL64) first_arrival = atoi(p);
-                job_arr[idx].submit = 100 + atoi(p) - first_arrival;
-                //job_arr[idx].submit = submission;
-                //submission+=5;
+                //if (first_arrival == NO_VAL64) first_arrival = atoi(p);
+                //job_arr[idx].submit = 100 + atoi(p) - first_arrival;
+                job_arr[idx].submit = submission;
+                submission+=5;
                 //printf("Submit time: %s -> %ld -- %ld\n", p,job_arr[idx].submit,first_arrival);
             }  // why submit cannot start from 0? 
             if(i==2) {
@@ -141,8 +141,8 @@ int main(int argc, char* argv[])
         }
 
         //Default not to set
-        //job_arr[idx].shared = NO_VAL;
-        job_arr[idx].shared = 0;
+        job_arr[idx].shared = NO_VAL;
+        //job_arr[idx].shared = 0;
         job_arr[idx].min_nodes = NO_VAL;
         job_arr[idx].cpus_per_task = NO_VAL;        
 

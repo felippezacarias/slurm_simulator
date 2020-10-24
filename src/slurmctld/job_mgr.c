@@ -18790,7 +18790,8 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		   (job_ptr->job_id != job_scan_ptr->job_id))
 				is_sharing = true;
 		
-		if((job_ptr->job_id == job_scan_ptr->job_id)){
+		if((job_ptr->job_id == job_scan_ptr->job_id) &&
+			(plugin_id < SELECT_PLUGIN_CONS_RES_LOCALNOSELF)){
 			if((bit_equal(job_ptr->node_bitmap,
 						job_ptr->job_resrcs->memory_pool_bitmap))){
 				first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
