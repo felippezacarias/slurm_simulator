@@ -1059,6 +1059,9 @@ extern void *backfill_agent(void *args)
 #endif
 	_load_config();
 	last_backfill_time = time(NULL);
+	debug("backfill_agent: last_backfill_time %ld", last_backfill_time);
+	wait_time = difftime((time_t) 1, last_backfill_time);
+	if(wait_time < 0) last_backfill_time = (time_t) 1;
 	pack_job_list = list_create(_pack_map_del);
 #ifdef SLURM_SIMULATOR
 	open_BF_sync_semaphore_pg();

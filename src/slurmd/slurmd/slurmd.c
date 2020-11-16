@@ -670,7 +670,7 @@ _send_sim_helper_cycle_msg(uint32_t jobs_count)
        req_msg.msg_type= MESSAGE_SIM_HELPER_CYCLE;
        req_msg.data    = &req;
 
-       info("SIM: sending MESSAGE_SIM_HELPER_CYCLE");
+       debug("SIM: sending MESSAGE_SIM_HELPER_CYCLE");
 
        /* Note: these log messages don't go to slurmd.log from here */
        for (i=0; i<=5; i++) {
@@ -703,11 +703,12 @@ _simulator_helper(void *arg)
 {
 	time_t now, last;
 	int jobs_ended;
+	int last_total_sim_events = -1;
 
 	_increment_thd_count();
 
 	//open_global_sync_sem();
-
+	
 	last = 0;
 	now = 0;
 	info("SIM: Simulator Helper starting...\n");
@@ -715,10 +716,14 @@ _simulator_helper(void *arg)
 		perform_global_sync();
 		jobs_ended = 0;
 		now = time(NULL);
-		info("now: %ld last: %ld diff: %ld", now, last, now - last);
+		debug("now: %ld last: %ld diff: %ld", now, last, now - last);
 		pthread_mutex_lock(&simulator_mutex);
-		if(head_simulator_event)
-			info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d\n", now, head_simulator_event->when, total_sim_events);
+		if(head_simulator_event){
+			if(last_total_sim_events != total_sim_events){
+				info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d\n", now, head_simulator_event->when, total_sim_events);
+				last_total_sim_events = total_sim_events;
+			}
+		}
 		else
 			info("Simulator Helper cycle: %ld, No events!!!\n", now);
 
