@@ -2608,7 +2608,7 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 		}
 	}
 
-	debug5("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
+	info("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
 
 	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
 

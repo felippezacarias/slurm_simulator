@@ -49,24 +49,31 @@ typedef struct job_trace {
 
 int main(int argc, char* argv[])
 {
-    int nrecs, i, submission = 100, is_real;
+    int nrecs, i, submission = 100;
     long first_arrival = NO_VAL64;
     int idx=0, errs=0, share = 0, mem_mb = 0;
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
     FILE* file;
     char line[1024], *p, *fileName;
+    int node_cores, node_minmem, is_dual, submission_rate;
 
 
-    if(argc < 2){
-        //printf("Error! ./swf2trace trace_filename number_records [0-synthetic|1-real]\n");
-        printf("Error! ./swf2trace trace_filename number_records\n");
+    if((argc < 5) || ((argc > 5) && (argc < 7))){
+        printf("Error(%d)! ./swf2trace trace_filename number_records dual_partition submission_rate [node_cores node_min_memory]\n",argc);
+        printf("dual_partiton=[0-single|1-dual]; if it is dual node_cores and node_min_memory must be set!\n");
+        printf("submission_rate=0; means using the trace original submission rate starting from 100seg!\n");
         exit(1);
     }
 
     fileName = argv[1];
     nrecs = atoi(argv[2]);
-    //is_real = atoi(argv[3]);
+    is_dual = atoi(argv[3]);
+    submission_rate = atoi(argv[4]);
     
+    if(is_dual){
+        node_cores = atoi(argv[5]);
+        node_minmem = atoi(argv[6]);
+    }
 
     file = fopen(fileName, "r");
     if(file == NULL){
@@ -97,10 +104,14 @@ int main(int argc, char* argv[])
                 //printf("[%d] JOBID [%d]\n", idx+2, job_arr[idx].job_id ); 
             }   
             if(i==1) {
-                //if (first_arrival == NO_VAL64) first_arrival = atoi(p);
-                //job_arr[idx].submit = 100 + atoi(p) - first_arrival;
-                job_arr[idx].submit = submission;
-                submission+=5;
+                if (first_arrival == NO_VAL64) first_arrival = atoi(p);
+                if(submission_rate){
+                    job_arr[idx].submit = submission;
+                    submission+=submission_rate;
+                }                    
+                else
+                    job_arr[idx].submit = submission + atoi(p) - first_arrival;
+                
                 //printf("Submit time: %s -> %ld -- %ld\n", p,job_arr[idx].submit,first_arrival);
             }  // why submit cannot start from 0? 
             if(i==2) {
@@ -151,6 +162,10 @@ int main(int argc, char* argv[])
         strcpy(job_arr[idx].username, "tester");
         strcpy(job_arr[idx].partition, "normal");
         strcpy(job_arr[idx].account, "1000");
+
+        if(is_dual && (mem_mb*node_cores > node_minmem)){
+            strcpy(job_arr[idx].partition, "largemem");
+        }
 
         idx++; 
 

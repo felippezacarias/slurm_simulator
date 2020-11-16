@@ -470,7 +470,7 @@ slurmd_req(slurm_msg_t *msg)
 		break;
 	case REQUEST_UPDATE_SIM_JOB:
 		#ifdef SLURM_SIMULATOR
-		debug5("FELIPPE: Processing RPC: REQUEST_UPDATE_SIM_JOB");
+		info("FELIPPE: Processing RPC: REQUEST_UPDATE_SIM_JOB");
 		simulator_rpc_update_job(msg);
 		#endif
 		break;
@@ -623,7 +623,7 @@ simulator_update_event_info(sim_job_msg_t *req)
 {
 	int rc = SLURM_SUCCESS;
 	/* FVZ: For this case the job is not in simulation running, so we have to update the simulator_event_info_t structure */
-	debug5("FELIPPE: %s jobid=%u not in execution yet!!",__func__,req->job_id);
+	info("FELIPPE: %s jobid=%u not in execution yet!!",__func__,req->job_id);
 	simulator_event_info_t *temp_ptr = head_simulator_event_info;
 	/* Checking job_id as expected */
 	while(temp_ptr){
@@ -632,11 +632,11 @@ simulator_update_event_info(sim_job_msg_t *req)
 			temp_ptr = temp_ptr->next;
 	}
 	if(!temp_ptr){
-			debug5("FELIPPE: %s jobid=%u  something went wrong!!",__func__,req->job_id);
+			info("FELIPPE: %s jobid=%u  something went wrong!!",__func__,req->job_id);
 			return SLURM_ERROR;
 	}
 
-	debug5("FELIPPE: %s jobid=%u prev duration %u  now %u",
+	info("FELIPPE: %s jobid=%u prev duration %u  now %u",
 						__func__,req->job_id, temp_ptr->duration, req->duration);
 	temp_ptr->duration = req->duration;
 
@@ -657,7 +657,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 
 
 	if(!head_simulator_event){
-			debug5("FELIPPE: %s There is no events! We can't update jobid=%u in head_simulator_event!",__func__,req->job_id);
+			info("FELIPPE: %s There is no events! We can't update jobid=%u in head_simulator_event!",__func__,req->job_id);
 			rc = simulator_update_event_info(req);
 			if(rc){
 				pthread_mutex_unlock(&simulator_mutex);
@@ -667,7 +667,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 			volatile simulator_event_t *node_temp = head_simulator_event;
 			volatile simulator_event_t *head_simulator_aux  = NULL;
 			volatile simulator_event_t *next,*prev;
-			debug5("FELIPPE: %s Updating simulation time for jobid=%u in the event list to duration=%u",__func__,req->job_id, req->duration);
+			info("FELIPPE: %s Updating simulation time for jobid=%u in the event list to duration=%u",__func__,req->job_id, req->duration);
 
 			prev = NULL;
 			while((node_temp->next) && (req->job_id != node_temp->job_id)){
@@ -675,7 +675,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 					node_temp = node_temp->next;
 			}
 			if(req->job_id == node_temp->job_id){
-				debug5("FELIPPE: %s jobid=%u before %ld now at %ld . head_simul at %ld head_id %u",
+				info("FELIPPE: %s jobid=%u before %ld now at %ld . head_simul at %ld head_id %u",
 						__func__,req->job_id, (node_temp->when), (node_temp->when+now), 
 						head_simulator_event->when,head_simulator_event->job_id);
 				node_temp->when = now + req->duration;	
@@ -698,7 +698,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 						prev = next;
 						next = next->next;
 				}
-				debug5("FELIPPE: %s if - jobid=%u prev at %ld  job_at %ld",
+				info("FELIPPE: %s if - jobid=%u prev at %ld  job_at %ld",
 						__func__,req->job_id, prev->when, node_temp->when);
 				prev->next = node_temp;
 				node_temp->next = next;
@@ -714,12 +714,12 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 					if((next) && (next->job_id == head_simulator_event->job_id)){
 						node_temp->next = head_simulator_event;
 						head_simulator_event = node_temp;
-						debug5("FELIPPE: %s else-if jobid=%u head_simulator_event at %ld job_at %ld head_id %u",
+						info("FELIPPE: %s else-if jobid=%u head_simulator_event at %ld job_at %ld head_id %u",
 								__func__,req->job_id, head_simulator_event->when,
 								node_temp->when,head_simulator_event->job_id);
 
 					}else{
-						debug5("FELIPPE: %s else-else jobid=%u prev at %ld  job_at %ld",
+						info("FELIPPE: %s else-else jobid=%u prev at %ld  job_at %ld",
 								__func__, req->job_id, prev->when, node_temp->when);
 						node_temp->next = prev->next;
 						prev->next = node_temp;

@@ -4165,21 +4165,21 @@ alloc_job:
 				min_cpus = nodes;
 				save_mem*=job_ptr->details->ntasks_per_node;
 			}
-			debug5("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested and using tasks %u to calculate memory requirement.",__func__,job_ptr->job_id,min_cpus);
+			info("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested and using tasks %u to calculate memory requirement.",__func__,job_ptr->job_id,min_cpus);
 		}
 		else{
 			min_cpus = MAX(job_ptr->details->min_cpus, nodes);
-			debug5("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested but using min_cpus %u or nodes %u to calculate memory requirement.",__func__,job_ptr->job_id,job_ptr->details->min_cpus,nodes);
+			info("FELIPPE: %s Filling in job resources of job_id %u mem_per_cpu requested but using min_cpus %u or nodes %u to calculate memory requirement.",__func__,job_ptr->job_id,job_ptr->details->min_cpus,nodes);
 		}
 
 		rem = (min_cpus * save_mem);
 		
-		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per cpu, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
+		info("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per cpu, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
 	} 
 	else if(save_mem){ /* memory is per-node */
 
 		rem = job_res->nhosts * save_mem;
-		debug5("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per node, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
+		info("FELIPPE: %s Filling in job resources of job_id %u for memory_allocated %lu per node, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
 
 	}
 
@@ -4204,14 +4204,14 @@ alloc_job:
 			rem -= rem;
 		}
 
-		debug5("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
+		info("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
 				__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx],node_usage[i].alloc_memory,avail,rem);
 		idx++;
 	}
 
 	
 	if(rem){
-		debug5("FELIPPE: %s ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+		info("FELIPPE: %s ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 			__func__,job_ptr->job_id,rem);
 	}
 

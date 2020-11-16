@@ -1070,7 +1070,11 @@ extern void *backfill_agent(void *args)
 	}
 #endif
 	_load_config();
+	/* added this min, cause sometimes it is bigger than 1! than backfill never runs */
 	last_backfill_time = time(NULL);
+	debug("backfill_agent: last_backfill_time %ld", last_backfill_time);
+	wait_time = difftime((time_t) 1, last_backfill_time);
+	if(wait_time < 0) last_backfill_time = (time_t) 1;
 	pack_job_list = list_create(_pack_map_del);
 #ifdef SLURM_SIMULATOR
 	open_BF_sync_semaphore_pg();
@@ -1107,7 +1111,7 @@ extern void *backfill_agent(void *args)
 			_load_config();
 		now = time(NULL);
 		wait_time = difftime(now, last_backfill_time);
-		//debug("backfill_agent: now %ld, wait_time %ld", now, wait_time);
+		debug("backfill_agent: now %ld, wait_time %ld", now, wait_time);
 #ifndef SLURM_SIMULATOR
 		if ((wait_time < backfill_interval) ||
 		    job_is_completing(NULL) || _many_pending_rpcs() ||

@@ -18639,7 +18639,7 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	char* this_addr;
 	int rc = SLURM_SUCCESS;
 
-	debug5("FELIPPE: %s sending update rpc time_left %e to job_id=%u", __func__,job_ptr->time_left,job_ptr->job_id);
+	info("FELIPPE: %s sending update rpc time_left %e to job_id=%u", __func__,job_ptr->time_left,job_ptr->job_id);
 	
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);
@@ -18678,7 +18678,7 @@ double _compute_scale(struct job_record *job_ptr){
 	int job_cnt = list_count(job_ptr->job_share);
 
 
-	debug5("FELIPPE: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
+	info("FELIPPE: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
 
 	//only for debug purpose
 	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
@@ -18707,7 +18707,7 @@ double _compute_scale(struct job_record *job_ptr){
 				interf_apps_index[idx]=job_tmp->sim_executable;
 				interf_apps_nodes[idx]=bit_set_count(job_tmp->node_bitmap);
 				//interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
-				debug5("FELIPPE: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
+				info("FELIPPE: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
 						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
 				idx++;
 
@@ -18718,13 +18718,13 @@ double _compute_scale(struct job_record *job_ptr){
 			target_info[3] = REMOTE_SENSITIVITY;
 			model_res_remote = model_speed(bw_threshold,target_info,interf_apps_index,interf_apps_nodes);
 
-			debug5("FELIPPE: %s. job_id=%u model_res_local=%.5f model_res_remote=%.5f local_remote_ratio=%.5f remote_allocation_ratio=%.5f",
+			info("FELIPPE: %s. job_id=%u model_res_local=%.5f model_res_remote=%.5f local_remote_ratio=%.5f remote_allocation_ratio=%.5f",
 					__func__,job_ptr->job_id,model_res_local[0],model_res_remote[0],local_remote_ratio,remote_allocation_ratio);
 
 			scale = (model_res_local[0]*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
 			if(self_interf)
 				scale = (model_res_local[0]*local_remote_ratio*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
-			debug5("FELIPPE: %s multi_curve[%d] job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+			info("FELIPPE: %s multi_curve[%d] job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
 					__func__,self_interf,job_ptr->job_id,scale,model_res_local[1],model_res_local[2],bw_threshold,time_delta);
 			free(model_res_local);
 			free(model_res_remote);
@@ -18748,7 +18748,7 @@ double _compute_scale(struct job_record *job_ptr){
 				if(self_interf)
 					tmp = (model_res_local[0]*local_remote_ratio*(1.0-remote_allocation_ratio)+(model_res_remote[0]*remote_allocation_ratio));
 
-				debug5("FELIPPE: %s single_curve[%d] job_id=%u job_tmp=%u interf_exec=%u calc_interf_nodes=%u scale=%.5f bw_max=%.5f intef_nodes=%.1f time_elapsed=%e",
+				info("FELIPPE: %s single_curve[%d] job_id=%u job_tmp=%u interf_exec=%u calc_interf_nodes=%u scale=%.5f bw_max=%.5f intef_nodes=%.1f time_elapsed=%e",
 						__func__,self_interf,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],tmp,model_res_local[1],model_res_local[2],time_delta);
 				if(scale > tmp) scale = tmp;
 				free(model_res_local);
@@ -18761,7 +18761,7 @@ double _compute_scale(struct job_record *job_ptr){
 	}//end if(job_cnt)
 	else{//one node multiple memory nodes without interference or full local/remote access
 		scale = (1.0*(1.0-remote_allocation_ratio)+(local_remote_ratio*remote_allocation_ratio));
-		debug5("FELIPPE: %s else job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
+		info("FELIPPE: %s else job_id=%u scale=%.5f bw_max=%.5f interf_nodes=%.1f bw_threshold=%.5f time_elapsed=%e",
 		__func__,job_ptr->job_id,scale,0.0,0.0,bw_threshold,time_delta);
 	}
 
@@ -18872,7 +18872,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
      * job_ptr->job_share will impact job_ptr->speed, time_elapsed and time_left
      */
 
-	debug5("FELIPPE: %s for job_id=%u", __func__,job_ptr->job_id);
+	info("FELIPPE: %s for job_id=%u", __func__,job_ptr->job_id);
 	
 	if(!completing){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
@@ -18909,7 +18909,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 		job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
 		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
-		debug5("FELIPPE: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
+		info("FELIPPE: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
 				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_min,scale,completing);
 
@@ -18923,7 +18923,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 			if(jobid == job_ptr->job_id) // we don't update the already updated job
 				continue;
 			
-			debug5("FELIPPE: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
+			info("FELIPPE: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
 			time_delta = difftime(now,job_scan_ptr->time_delta);
 			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
@@ -18944,7 +18944,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			_update_sim_job_status(job_scan_ptr);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
-			debug5("FELIPPE: %s job_id=%u [xsharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
+			info("FELIPPE: %s job_id=%u [xsharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_min,scale,completing,count_job_scan_ptr);
 		}
