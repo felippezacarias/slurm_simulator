@@ -18644,7 +18644,8 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);
 	req.job_id       = job_ptr->job_id;
-	req.duration     =  job_ptr->time_left;
+	req.duration     = job_ptr->time_left;
+	req.wclimit		 = 0;
 	req_msg.msg_type = REQUEST_UPDATE_SIM_JOB;
 	req_msg.data     = &req;
 	req_msg.protocol_version = SLURM_PROTOCOL_VERSION;
@@ -18908,7 +18909,11 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 		scale = _compute_scale(job_ptr);
 
 		job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
-		job_ptr->time_left    = ((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
+		if ((scale == 1.0) && (!completing))
+			job_ptr->time_left = job_ptr->time_min;
+		else
+			job_ptr->time_left    = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
+			
 		info("FELIPPE: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 				__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
 				job_ptr->speed, job_ptr->time_left,time_delta,job_ptr->time_min,scale,completing);
@@ -18939,7 +18944,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_min)*(scale));
 
-			job_scan_ptr->time_left    = ((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
+			job_scan_ptr->time_left    = ceil((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
 			job_scan_ptr->time_delta = now;
 
 			_update_sim_job_status(job_scan_ptr);
