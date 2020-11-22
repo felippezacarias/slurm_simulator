@@ -509,8 +509,14 @@ generateJob(job_trace_t* jobd) {
 	slurm_init_job_desc_msg(&dmesg);
 
 	/* First, set up and call Slurm C-API for actual job submission. */
-	//dmesg.time_limit    = jobd->wclimit;
-	dmesg.time_limit    = jobd->duration;
+	if(jobd->duration == 0){
+		dmesg.time_limit    = jobd->duration;
+		dmesg.time_min    = jobd->duration;
+	}
+	else{
+		dmesg.time_limit    = jobd->wclimit;
+		dmesg.time_min    = jobd->duration;
+	}
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
 	uidt = userIdFromName(jobd->username, &gidt);

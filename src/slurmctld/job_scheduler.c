@@ -723,7 +723,9 @@ static void _do_diag_stats(long delta_t)
         normal_sched_total_time += delta_t;
         normal_sched_counter++;
         normal_sched_queue_len = slurmctld_diag_stats.schedule_queue_len;
-        debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
+		/* FVZ: changing to info, we can revert later */
+        //debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
+		info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
 	slurmctld_diag_stats.schedule_cycle_counter++;
 }
 
