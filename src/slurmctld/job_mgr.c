@@ -15115,7 +15115,7 @@ extern uint64_t job_get_tres_mem(struct job_resources *job_res,
 	int i;
 
 	if (job_res) {
-		for (i = 0; i < job_res->nhosts; i++) {
+		for (i = 0; i < job_res->memory_nhosts; i++) {
 			mem_total += job_res->memory_allocated[i];
 		}
 		return mem_total;
