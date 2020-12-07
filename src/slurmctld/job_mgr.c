@@ -5941,6 +5941,8 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 	if (IS_JOB_COMPLETING(job_ptr))
 		return SLURM_SUCCESS;	/* avoid replay */
 
+	debug_utilization(job_ptr, now, "end");
+
 	if ((job_return_code & 0xff) == SIG_OOM) {
 		info("%s: %pJ OOM failure",  __func__, job_ptr);
 	} else if (WIFSIGNALED(job_return_code)) {
