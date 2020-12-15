@@ -49,19 +49,20 @@ typedef struct job_trace {
 
 int main(int argc, char* argv[])
 {
-    int nrecs, i, submission = 100;
+    int nrecs, i, aux, submission = 100;
     long first_arrival = NO_VAL64;
     int idx=0, errs=0, share = 0, mem_mb = 0;
     job_trace_t* job_trace,* job_trace_head,* job_arr,* job_ptr;
     FILE* file;
     char line[1024], *p, *fileName;
-    int node_cores, node_minmem, is_dual, submission_rate;
+    int node_cores, node_minmem, is_dual;
+    double submission_rate, auxf;
 
 
     if((argc < 5) || ((argc > 5) && (argc < 7))){
-        printf("Error(%d)! ./swf2trace trace_filename number_records dual_partition submission_rate [node_cores node_min_memory]\n",argc);
+        printf("Error(%d)! ./swf2trace trace_filename number_records dual_partition submission_load_rate [node_cores node_min_memory]\n",argc);
         printf("dual_partiton=[0-single|1-dual]; if it is dual node_cores and node_min_memory must be set!\n");
-        printf("submission_rate=0; means using the trace original submission rate starting from 100seg!\n");
+        printf("submission_load_rate=0; means using the trace original submission rate starting from 100seg! Otherwise decrease the load x percent\n");
         exit(1);
     }
 
@@ -95,7 +96,7 @@ int main(int argc, char* argv[])
         /* note that fgets don't strip the terminating \n, checking its
            presence would allow to handle lines longer that sizeof(line) */
         if(idx > nrecs-1) break;
-        printf("%s", line);
+        //printf("%s", line);
         p = strtok(line, ",");
         i=0;
         while(p!=NULL){
@@ -106,8 +107,11 @@ int main(int argc, char* argv[])
             if(i==1) {
                 if (first_arrival == NO_VAL64) first_arrival = atoi(p);
                 if(submission_rate){
-                    job_arr[idx].submit = submission;
-                    submission+=submission_rate;
+                    //job_arr[idx].submit = submission;
+                    //submission+=submission_rate;
+                    aux = (atoi(p) - first_arrival);
+                    auxf = (aux * (submission_rate/100));
+                    job_arr[idx].submit = submission + (aux - auxf);
                 }                    
                 else
                     job_arr[idx].submit = submission + atoi(p) - first_arrival;

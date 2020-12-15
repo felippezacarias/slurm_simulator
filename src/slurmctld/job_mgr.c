@@ -5964,6 +5964,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 		return SLURM_SUCCESS;	/* avoid replay */
 
 	/* FVZ: executing check function after complete the job */
+	debug_utilization(job_ptr, now, "end");
 	_check_job_status(job_ptr, true);
 
 	if ((job_return_code & 0xff) == SIG_OOM) {

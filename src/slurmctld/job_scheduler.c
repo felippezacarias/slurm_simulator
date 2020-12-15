@@ -2433,6 +2433,61 @@ static void _set_pack_env(struct job_record *pack_leader,
 	launch_msg_ptr->envc = i;
 }
 
+extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
+	bitstr_t** nodes_bitmap;
+	int32_t nodes = 0;
+	int i = 0;
+	int part_cnt = list_count(part_list);
+	char *last_part = NULL, **partitions=NULL;
+	struct job_record *job_scan_ptr;
+	ListIterator job_iterator = list_iterator_create(job_list);
+
+	partitions = xmalloc(part_cnt * sizeof(char*));
+	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
+
+	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+		if(IS_JOB_RUNNING(job_scan_ptr)){
+
+			if(last_part == NULL){
+				last_part = xstrdup(job_scan_ptr->partition);
+				partitions[i] = xstrdup(job_scan_ptr->partition);
+				nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
+				for(int x=1; x < part_cnt; x++){
+					partitions[x] = NULL;
+					nodes_bitmap[x] = NULL;
+				}
+			}else{
+				//another partition
+				if(strcmp(last_part,job_scan_ptr->partition) != 0){
+					i = (i+1)%part_cnt;
+					xfree(last_part);
+					last_part = xstrdup(job_scan_ptr->partition);
+					if(partitions[i] == NULL){
+						partitions[i] = xstrdup(job_scan_ptr->partition);
+						nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
+					}
+				}
+			}
+			
+			bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
+			bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->memory_pool_bitmap);
+		}
+	}
+
+	for(int x=0; x < part_cnt; x++){
+		nodes = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
+		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyalloc=%d additionalnode=0 partition=%s type=%s",
+			__func__,now,job_ptr->job_id,nodes,partitions[x],type);
+		xfree(partitions[x]);
+		FREE_NULL_BITMAP(nodes_bitmap[x]);
+	}
+
+	xfree(last_part);
+	xfree(partitions);
+	xfree(nodes_bitmap);
+	list_iterator_destroy(job_iterator);
+}
+
 /*
  * launch_job - send an RPC to a slurmd to initiate a batch job
  * IN job_ptr - pointer to job that will be initiated
@@ -2481,6 +2536,7 @@ extern void launch_job(struct job_record *job_ptr)
 		_set_pack_env(launch_job_ptr, launch_msg_ptr);
 
 	/* FVZ: executing check function before launching the job */
+	debug_utilization(job_ptr, job_ptr->start_time, "start");
 	_check_job_status(job_ptr, false);
 
 #ifndef SLURM_SIMULATOR
