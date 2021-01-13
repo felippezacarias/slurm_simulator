@@ -2967,7 +2967,8 @@ static int _eval_memory(struct job_record *job_ptr,
 {
 	int i, nodes, mem_nodes, error_code = SLURM_ERROR;
 	uint64_t tot_req_mem = 0, req_mem = 0, tot_alloc_mem = 0, per_node = 0;
-	uint64_t free_mem, remaining = 0, *mem_rem_per_node;
+	uint64_t free_mem, remaining = 0;
+	int *mem_rem_per_node;
 	int i_first, i_last, idx = 0;
 	char *node_name,*mem_node_name;
 	bitstr_t *orig_map;
@@ -2979,14 +2980,14 @@ static int _eval_memory(struct job_record *job_ptr,
 	nodes 	  = bit_set_count(node_map);
 	mem_nodes = bit_set_count(memory_pool_map);
 
-	if(mem_nodes < nodes){
-		//not sufficient memory nodes to avoid self interference
-		debug5("FELIPPE: %s for job_id %u mem_nodes < nodes (%d < %d)! Insufficient to avoid self interference.",__func__,job_ptr->job_id,mem_nodes,nodes);
-		return error_code;
-	}
+	//if(mem_nodes < nodes){
+	//	//not sufficient memory nodes to avoid self interference
+	//	debug5("FELIPPE: %s for job_id %u mem_nodes < nodes (%d < %d)! Insufficient to avoid self interference.",__func__,job_ptr->job_id,mem_nodes,nodes);
+	//	return error_code;
+	//}
 
 	node_name = bitmap2node_name(node_map);
-	mem_rem_per_node = xmalloc(nodes * sizeof(uint64_t));
+	mem_rem_per_node = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
 	
 	/*FVZ: it is the difference between nodes which has memory available, and nodes
@@ -3040,9 +3041,13 @@ static int _eval_memory(struct job_record *job_ptr,
 		per_node = (job_ptr->details->pn_min_memory & MEM_PER_CPU) ? select_node_record[i].cpus * req_mem : req_mem;
 
 		mem_rem_per_node[idx] = per_node - free_mem; // think req_mem as per_cpu rewrite to per_node as well
+		debug5("FELIPPE: %s for job_id %u node %s free_mem %lu per_node %lu  mem_rem_per_node[%d] %d",
+             __func__,job_ptr->job_id,select_node_record[i].node_ptr->name,free_mem,per_node,idx, mem_rem_per_node[idx]);
 		idx++;
 
 		tot_alloc_mem += MIN(free_mem, per_node);
+		//For localnoself free_mem should be at least 40% of mem capacity, however
+		//if we change the policy this if guarantee we know the compute node is also used as mem node or not 
 		if(free_mem != 0)
 			bit_set(memory_pool_map,i);
 	}
@@ -3066,8 +3071,12 @@ static int _eval_memory(struct job_record *job_ptr,
 			free_mem = select_node_record[i].real_memory;
 			if(!test_only)	free_mem -= node_usage[i].alloc_memory;
 
-			if(mem_rem_per_node[idx] <= 0)
+			//FVZ: Might happen some nodes don't need extra mem. we should skip them
+			while((mem_rem_per_node[idx] <= 0) && (idx < nodes))
 				idx++;
+			
+			if(idx == nodes)
+				break;
 			
 			if(mem_rem_per_node[idx] > free_mem){
 				mem_rem_per_node[idx] -= free_mem;
@@ -3079,8 +3088,8 @@ static int _eval_memory(struct job_record *job_ptr,
 			}
 			
 			bit_set(memory_pool_map,i);
-			debug5("FELIPPE: %s [memory node %s free_mem %lu] total allocated up now %lu",
-					__func__,select_node_record[i].node_ptr->name,free_mem,tot_alloc_mem);
+			debug5("FELIPPE: %s [memory node %s free_mem %lu] total allocated up now %lu mem_rem_per_node[%d] %d",
+					__func__,select_node_record[i].node_ptr->name,free_mem,tot_alloc_mem,idx,mem_rem_per_node[idx]);
 			mem_nodes++;
 			if(tot_alloc_mem >= tot_req_mem){
 				error_code = SLURM_SUCCESS;
@@ -3103,8 +3112,8 @@ static int _eval_memory(struct job_record *job_ptr,
 	FREE_NULL_BITMAP(orig_map);
 	 
 	if(tot_alloc_mem < tot_req_mem) {
-		debug5("FELIPPE: %s for job_id %u was not possible to allocate enough memory %lu for this job to avoid self interference. Required %lu!!",
-				__func__,job_ptr->job_id,tot_alloc_mem,tot_req_mem);		
+		debug("FELIPPE: %s for job_id %u was not possible to allocate enough memory %lu of %lu for this job to avoid self interference. nodes - mem_nodes (%d - %d)",
+				__func__,job_ptr->job_id,tot_alloc_mem,tot_req_mem,nodes,mem_nodes);		
 		return SLURM_ERROR;
 	}
 	return error_code;
@@ -4170,14 +4179,14 @@ alloc_job:
 	int idx = 0;
 	int idx_mem = -1, idx_cpu = -1;
 	uint64_t avail = 0, rem = 0, min_cpus, allocated;
-	uint64_t *mem_rem_per_node=NULL;
+	int *mem_rem_per_node=NULL;
 	uint32_t nodes;
 	bool using_nodes = false;
 	bool mem_avail = false;
 
 	nodes = bit_set_count(job_res->node_bitmap);
 
-	mem_rem_per_node = xmalloc(nodes * sizeof(uint64_t));
+	mem_rem_per_node = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
@@ -4244,8 +4253,8 @@ alloc_job:
 					rem -= (allocated);	
 			}
 
-			info("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u",
-					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx_cpu]);
+			info("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u mem_rem_per_node[%d] %d",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx_cpu],idx_cpu,mem_rem_per_node[idx_cpu]);
 
 		}
 	} 
@@ -4314,8 +4323,15 @@ alloc_job:
 			if (bit_test(job_res->node_bitmap, i))
 				continue;
 
-			if(mem_rem_per_node[idx_cpu] <= 0)
+			//if(mem_rem_per_node[idx_cpu] <= 0)
+			//	idx_cpu++;
+			
+			//FVZ: Might happen some nodes don't need extra mem. we should skip them
+			while((mem_rem_per_node[idx_cpu] <= 0) && (idx_cpu < nodes))
 				idx_cpu++;
+			
+			if(idx_cpu == nodes)
+				break;
 
 			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
@@ -4332,8 +4348,8 @@ alloc_job:
 				mem_rem_per_node[idx_cpu] = 0;
 			}
 
-			info("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
-					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem);
+			info("FELIPPE: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,idx_cpu,mem_rem_per_node[idx_cpu]);
 		}
 	}
 	
