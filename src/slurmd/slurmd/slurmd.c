@@ -642,7 +642,7 @@ _send_sim_helper_cycle_msg(uint32_t jobs_count)
        req_msg.msg_type= MESSAGE_SIM_HELPER_CYCLE;
        req_msg.data    = &req;
 
-       info("SIM: sending MESSAGE_SIM_HELPER_CYCLE");
+       debug("SIM: sending MESSAGE_SIM_HELPER_CYCLE");
 
        /* Note: these log messages don't go to slurmd.log from here */
        for (i=0; i<=5; i++) {
@@ -673,73 +673,78 @@ _send_sim_helper_cycle_msg(uint32_t jobs_count)
 void *
 _simulator_helper(void *arg)
 {
-        time_t now, last;
-        int jobs_ended;
+	time_t now, last;
+	int jobs_ended;
+	int last_total_sim_events = -1;
 
-        _increment_thd_count();
+	_increment_thd_count();
 
-        //open_global_sync_sem();
+	//open_global_sync_sem();
 
-        last = 0;
-        now = 0;
-        info("SIM: Simulator Helper starting...\n");
-        while (!_shutdown) {
-                perform_global_sync();
-                jobs_ended = 0;
-                now = time(NULL);
-                info("now: %ld last: %ld diff: %ld", now, last, now - last);
-                pthread_mutex_lock(&simulator_mutex);
-                if(head_simulator_event)
-                        info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d\n", now, head_simulator_event->when, total_sim_events);
-                else
-                        info("Simulator Helper cycle: %ld, No events!!!\n", now);
+	last = 0;
+	now = 0;
+	info("SIM: Simulator Helper starting...\n");
+	while (!_shutdown) {
+			perform_global_sync();
+			jobs_ended = 0;
+			now = time(NULL);
+			debug("now: %ld last: %ld diff: %ld", now, last, now - last);
+			pthread_mutex_lock(&simulator_mutex);
+			if(head_simulator_event){
+					if(last_total_sim_events != total_sim_events){
+						info("Simulator Helper cycle: %ld, Next event at %ld, total_sim_events: %d\n", now, head_simulator_event->when, total_sim_events);
+						last_total_sim_events = total_sim_events;
+					}
+			}
+			else
+				info("Simulator Helper cycle: %ld, No events!!!\n", now);
 
-                while((head_simulator_event) && (now >= head_simulator_event->when)){
-                        volatile simulator_event_t *aux;
-                        int event_jid;
-                        event_jid = head_simulator_event->job_id;
-                        aux = head_simulator_event;
-                        head_simulator_event = head_simulator_event->next;
-                        aux->next = head_sim_completed_jobs;
-                        head_sim_completed_jobs = aux;
-                        total_sim_events--;
-                        info("SIM: Sending JOB_COMPLETE_BATCH_SCRIPT for job %d", event_jid);
-                        pthread_mutex_unlock(&simulator_mutex);
-                        if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
-				pthread_mutex_lock(&simulator_mutex);
-                        	waiting_epilog_msgs++;
-                        	info("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d SENT", event_jid);
-                        	jobs_ended++;
+			while((head_simulator_event) && (now >= head_simulator_event->when)){
+				volatile simulator_event_t *aux;
+				int event_jid;
+				event_jid = head_simulator_event->job_id;
+				aux = head_simulator_event;
+				head_simulator_event = head_simulator_event->next;
+				aux->next = head_sim_completed_jobs;
+				head_sim_completed_jobs = aux;
+				total_sim_events--;
+				info("SIM: Sending JOB_COMPLETE_BATCH_SCRIPT for job %d when %ld now %ld", event_jid,aux->when,now);
+				pthread_mutex_unlock(&simulator_mutex);
+				if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
+					pthread_mutex_lock(&simulator_mutex);
+					waiting_epilog_msgs++;
+					info("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d SENT", event_jid);
+					jobs_ended++;
+				} else {
+					error("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d NOT SENT", event_jid);
+					pthread_exit(0);
+					_decrement_thd_count();
+					return NULL;
+				} 
+			}
+			pthread_mutex_unlock(&simulator_mutex);
+			last = now;
+			if(jobs_ended){
+					/* Let's give some time to EPILOG_MESSAGE process to terminate  */
+					/* TODO: It should be done better with a counter of EPILOG messages processed */
+
+					while (waiting_epilog_msgs > 0) {
+							debug3("Waiting epilog to finish");
+							usleep(100);
+					}
+					_send_sim_helper_cycle_msg(jobs_ended);
 			} else {
-				error("SIM: JOB_COMPLETE_BATCH_SCRIPT for job %d NOT SENT", event_jid);
-				pthread_exit(0);
-        			_decrement_thd_count();
-        			return NULL;
-			} 
-                }
-                pthread_mutex_unlock(&simulator_mutex);
-                last = now;
-                if(jobs_ended){
-                        /* Let's give some time to EPILOG_MESSAGE process to terminate  */
-                        /* TODO: It should be done better with a counter of EPILOG messages processed */
+					_send_sim_helper_cycle_msg(0);
+			}
 
-                        while (waiting_epilog_msgs > 0) {
-                                debug3("Waiting epilog to finish");
-                                usleep(100);
-                        }
-                        _send_sim_helper_cycle_msg(jobs_ended);
-                } else {
-                        _send_sim_helper_cycle_msg(0);
-                }
+			perform_global_sync_end();
 
-                perform_global_sync_end();
+	}
+	info("SIM: Simulator Helper finishing...");
 
-        }
-        info("SIM: Simulator Helper finishing...");
-
-        pthread_exit(0);
-        _decrement_thd_count();
-        return NULL;
+	pthread_exit(0);
+	_decrement_thd_count();
+	return NULL;
 }
 #endif
 
