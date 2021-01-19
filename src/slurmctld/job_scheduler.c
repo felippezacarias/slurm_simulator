@@ -707,7 +707,7 @@ static void _do_diag_stats(long delta_t)
 	normal_sched_total_time += delta_t;
         normal_sched_counter++;
         normal_sched_queue_len = slurmctld_diag_stats.schedule_queue_len;
-        debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
+        info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld now %ld", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len,time(NULL));
 	slurmctld_diag_stats.schedule_cycle_counter++;
 }
 
@@ -1225,7 +1225,7 @@ static int _schedule(uint32_t job_limit)
 	static int max_jobs_per_part = 0;
 	static int defer_rpc_cnt = 0;
 	static bool reduce_completing_frag = 0;
-	time_t now, last_job_sched_start, sched_start;
+	time_t now, last_job_sched_start, sched_start, nowt;
 	uint32_t reject_array_job_id = 0;
 	struct part_record *reject_array_part = NULL;
 	uint16_t reject_state_reason = WAIT_NO_REASON;
@@ -1250,6 +1250,13 @@ static int _schedule(uint32_t job_limit)
 		error("%s: cannot set my name to %s %m", __func__, "sched");
 	}
 #endif
+
+	if(sched_update == 0){
+		info("%s now %ld sched_update 0 slurmctld_conf.last_update %ld",__func__,time(NULL),slurmctld_conf.last_update);
+		if(sched_update == slurmctld_conf.last_update){
+			slurmctld_conf.last_update = 1;
+		}
+	}
 
 	if (sched_update != slurmctld_conf.last_update) {
 		char *sched_params, *tmp_ptr;
@@ -1555,6 +1562,7 @@ static int _schedule(uint32_t job_limit)
 	}
 
 	debug("sched: Running job scheduler");
+	info("%s: now %ld",__func__,time(NULL));
 	/*
 	 * If we are doing FIFO scheduling, use the job records right off the
 	 * job list.
@@ -1649,8 +1657,10 @@ next_part:			part_ptr = (struct part_record *)
 			is_job_array_head = false;
 
 next_task:
-		if ((time(NULL) - sched_start) >= sched_timeout) {
+		nowt = time(NULL);
+		if ((nowt - sched_start) >= sched_timeout) {
 			debug("sched: loop taking too long, breaking out");
+			debug("nowt %ld sched_start %ld sched_timeout %ld",nowt,sched_start,sched_timeout);
 			break;
 		}
 		if (sched_max_job_start && (job_cnt >= sched_max_job_start)) {
@@ -2688,6 +2698,60 @@ static void _set_pack_env(struct job_record *pack_leader,
 	launch_msg_ptr->envc = i;
 }
 
+extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
+	bitstr_t** nodes_bitmap;
+	int32_t nodes = 0;
+	int i = 0;
+	int part_cnt = list_count(part_list);
+	char *last_part = NULL, **partitions=NULL;
+	struct job_record *job_scan_ptr;
+	ListIterator job_iterator = list_iterator_create(job_list);
+
+	partitions = xmalloc(part_cnt * sizeof(char*));
+	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
+
+	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+		if(IS_JOB_RUNNING(job_scan_ptr)){
+
+			if(last_part == NULL){
+				last_part = xstrdup(job_scan_ptr->partition);
+				partitions[i] = xstrdup(job_scan_ptr->partition);
+				nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
+				for(int x=1; x < part_cnt; x++){
+					partitions[x] = NULL;
+					nodes_bitmap[x] = NULL;
+				}
+			}else{
+				//another partition
+				if(strcmp(last_part,job_scan_ptr->partition) != 0){
+					i = (i+1)%part_cnt;
+					xfree(last_part);
+					last_part = xstrdup(job_scan_ptr->partition);
+					if(partitions[i] == NULL){
+						partitions[i] = xstrdup(job_scan_ptr->partition);
+						nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
+					}
+				}
+			}
+			
+			bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
+		}
+	}
+
+	for(int x=0; x < part_cnt; x++){
+		nodes = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
+		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyalloc=%d additionalnode=0 partition=%s type=%s",
+			__func__,now,job_ptr->job_id,nodes,partitions[x],type);
+		xfree(partitions[x]);
+		FREE_NULL_BITMAP(nodes_bitmap[x]);
+	}
+
+	xfree(last_part);
+	xfree(partitions);
+	xfree(nodes_bitmap);
+	list_iterator_destroy(job_iterator);
+}
+
 /*
  * launch_job - send an RPC to a slurmd to initiate a batch job
  * IN job_ptr - pointer to job that will be initiated
@@ -2734,6 +2798,8 @@ extern void launch_job(struct job_record *job_ptr)
 #else
 
         {
+				debug_utilization(job_ptr, job_ptr->start_time, "start");
+
                 slurm_msg_t msg, resp;
                 slurm_msg_t_init(&msg);
                 msg.msg_type = REQUEST_BATCH_JOB_LAUNCH;

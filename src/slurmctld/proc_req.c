@@ -4063,6 +4063,8 @@ send_msg:
 	}
 	xfree(err_msg);
 	xfree(job_submit_user_msg);
+
+	debug_utilization(job_ptr,job_ptr->details->submit_time, "submit");
 }
 
 /* _slurm_rpc_submit_batch_pack_job - process RPC to submit a batch pack job */

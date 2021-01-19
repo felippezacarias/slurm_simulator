@@ -109,6 +109,8 @@ extern bool job_is_completing(bitstr_t *eff_cg_bitmap);
 extern int job_start_data(job_desc_msg_t *job_desc_msg,
 			  will_run_response_msg_t **resp);
 
+extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type);
+
 /*
  * launch_job - send an RPC to a slurmd to initiate a batch job
  * IN job_ptr - pointer to job that will be initiated
