@@ -2340,6 +2340,14 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	} else
 		selected_node_cnt = req_nodes;
 
+	/* FVZ: dealing with cancelled jobs */
+	#ifdef SLURM_SIMULATOR
+	if((error_code == SLURM_SUCCESS) &&
+		(job_ptr->time_limit == 0)){
+			goto cleanup;
+	}
+	#endif
+
 	memcpy(tres_req_cnt, job_ptr->tres_req_cnt, sizeof(tres_req_cnt));
 	tres_req_cnt[TRES_ARRAY_CPU] =
 		(uint64_t)(job_ptr->total_cpus ?

@@ -3960,6 +3960,11 @@ static void _slurm_rpc_submit_batch_job(slurm_msg_t *msg)
 		      uid);
 	}
 #endif
+#ifdef SLURM_SIMULATOR
+	/* FVZ: dealing with cancelled jobs */
+	if(job_desc_msg->time_limit == 0)
+		total_epilog_complete_jobs++;
+#endif
 	if ((job_desc_msg->alloc_node == NULL) ||
 	    (job_desc_msg->alloc_node[0] == '\0')) {
 		error_code = ESLURM_INVALID_NODE_NAME;

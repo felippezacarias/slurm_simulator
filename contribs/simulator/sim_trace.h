@@ -2,6 +2,7 @@
 #define __SIM_TRACE_H_
 
 #ifdef SLURM_SIMULATOR
+#include "slurm/slurm.h"
 
 #define MAX_USERNAME_LEN 30
 #define MAX_RSVNAME_LEN  30

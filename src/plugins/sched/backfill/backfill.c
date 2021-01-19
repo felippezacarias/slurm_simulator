@@ -2109,6 +2109,20 @@ next_task:
 			}
 
 			rc = _start_job(job_ptr, resv_bitmap);
+			/* FVZ: Dealing with cancelled jobs.
+				the plugin is ready to execute the job, but we
+				do not execute it. */
+			#ifdef SLURM_SIMULATOR			
+			if((error_code == SLURM_SUCCESS) &&
+				(job_ptr->time_limit == 0)){
+				job_ptr->job_state	= JOB_CANCELLED;
+				job_ptr->start_time	= now;
+				job_ptr->end_time	= now;
+				job_completion_logger(job_ptr, false);
+				debug5("SIMMOD: %s Cancelling jobid %u return_code %d",__func__,job_ptr->job_id,error_code);
+				continue;
+			}
+			#endif
 
 			if (rc == SLURM_SUCCESS) {
 				/* If the following fails because of network
@@ -2505,6 +2519,14 @@ static int _start_job(struct job_record *job_ptr, bitstr_t *resv_bitmap)
 	if (job_ptr->array_recs)
 		is_job_array_head = true;
 	rc = select_nodes(job_ptr, false, NULL, NULL, NULL);
+	/* FVZ: Dealing with cancelled jobs */
+	#ifdef SLURM_SIMULATOR		
+		if((job_ptr->time_limit == 0)){
+				// If I want to know if the job was cancelled during backfilling
+				//job_ptr->backfilled = 1;
+				return rc;
+		}
+	#endif 
 	if (is_job_array_head && job_ptr->details) {
 		struct job_record *base_job_ptr;
 		base_job_ptr = find_job_record(job_ptr->array_job_id);

@@ -6,6 +6,7 @@
 .deps
 .libs
 Makefile
+Makefile.in
 autom4te.cache
 /api/full_version.map
 /config.h

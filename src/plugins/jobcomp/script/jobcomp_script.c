@@ -207,6 +207,14 @@ struct jobcomp_info {
 	char *std_out;
 	char *std_err;
 	uint16_t backfilled;
+	/* FVZ: added */
+	uint32_t num_tasks;
+	uint16_t ntasks_per_node;
+	uint64_t pn_min_memory;	
+	uint32_t min_cpus;
+	uint32_t min_nodes;
+	uint8_t share_res;	
+	uint16_t cpus_per_task;
 #ifdef HAVE_BG
 	char *connect_type;
 	char *geometry;
@@ -218,6 +226,13 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 {
 	enum job_states state;
 	struct jobcomp_info * j = xmalloc (sizeof (*j));
+	job_resources_t *jobresc = NULL; 
+	struct job_details *details = NULL;
+
+	jobresc = job->job_resrcs;
+	details = job->details;
+
+	debug5("SIMMOD: %s for job %u",__func__,job->job_id);
 
 	j->jobid = job->job_id;
 	j->exit_code = job->exit_code;
@@ -281,6 +296,16 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 	j->nodes = xstrdup (job->nodes);
 	j->nprocs = job->total_cpus;
 	j->nnodes = job->node_cnt;
+
+	if(details){
+		j->num_tasks = details->num_tasks;
+		j->ntasks_per_node = details->ntasks_per_node;
+		j->min_cpus = details->min_cpus;
+		j->min_nodes = details->min_nodes;
+		j->pn_min_memory = details->pn_min_memory;
+		j->cpus_per_task = details->cpus_per_task;
+		j->share_res = details->share_res;
+	}
 	j->account = job->account ? xstrdup (job->account) : NULL;
 	if (job->resv_name && job->resv_name[0])
 		j->reservation = xstrdup(job->resv_name);
@@ -478,14 +503,27 @@ static char ** _create_environment (struct jobcomp_info *job)
 		_env_append (&env, "STDOUT",     job->std_out);
 	if (job->std_err)
 		_env_append (&env, "STDERR",     job->std_err);
-	mins2time_str(job->limit, time_str, sizeof(time_str));
-	_env_append (&env, "LIMIT", time_str);
+	//mins2time_str(job->limit, time_str, sizeof(time_str));
+	//_env_append (&env, "LIMIT", time_str);
 	_env_append (&env, "BACKFILLED", (job->backfilled ? "yes" : "no"));
 #ifdef HAVE_BG
 	_env_append (&env, "BLOCKID",      job->blockid);
 	_env_append (&env, "CONNECT_TYPE", job->connect_type);
 	_env_append (&env, "GEOMETRY",     job->geometry);
 #endif
+	/* FVZ: appending new info */
+	_env_append_fmt (&env, "LIMIT", "%u", job->limit);
+	_env_append_fmt (&env, "HARDLIMIT", "%u", job->limit);	
+	_env_append_fmt (&env, "REQNUMTASKS","%u", job->num_tasks);
+	_env_append_fmt (&env, "REQTASKSPERNODE","%u", job->ntasks_per_node);
+	_env_append_fmt (&env, "REQMINCPUS","%u", job->min_cpus);
+	_env_append_fmt (&env, "REQMINNODES","%u", job->min_nodes);
+	_env_append_fmt (&env, "REQSHARED", (job->share_res ? "yes" : "no"));
+	_env_append_fmt (&env, "REQCPUPERTASK","%u", job->cpus_per_task);
+	if(job->pn_min_memory & MEM_PER_CPU)
+		_env_append_fmt (&env, "MEMORYPERCPU","%lu", job->pn_min_memory & (~MEM_PER_CPU));
+	else
+		_env_append_fmt (&env, "MEMORYPERNODE","%lu", job->pn_min_memory);
 
 	if ((tz = getenv ("TZ")))
 		_env_append_fmt (&env, "TZ", "%s", tz);

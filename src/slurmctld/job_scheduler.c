@@ -1897,6 +1897,23 @@ next_task:
 
 		error_code = select_nodes(job_ptr, false, NULL,
 					  unavail_node_str, NULL);
+		
+		/* FVZ: Dealing with cancelled jobs 
+			the job is ready to execute, but the resources have not been
+			allocated yet. */
+		#ifdef SLURM_SIMULATOR
+		if((error_code == SLURM_SUCCESS) &&
+			(job_ptr->time_limit == 0)){
+			//kill job and continue
+			job_ptr->job_state	= JOB_CANCELLED;
+			job_ptr->start_time	= now;
+			job_ptr->end_time	= now;
+			job_completion_logger(job_ptr, false);
+			debug5("SIMMOD: %s Cancelling jobid %u return_code %d",
+					__func__,job_ptr->job_id,error_code);
+			continue;
+		}
+		#endif
 
 		if (error_code == SLURM_SUCCESS) {
 			/* If the following fails because of network
