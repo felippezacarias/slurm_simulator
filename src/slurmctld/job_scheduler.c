@@ -2028,10 +2028,10 @@ skip_start:
 			xfree(ionodes);
 #else
 			info("sched: Allocate %s NodeList=%s #CPUs=%u "
-			     "Partition=%s",
+			     "Partition=%s now %ld",
 			     jobid2fmt(job_ptr, job_id_buf, sizeof(job_id_buf)),
 			     job_ptr->nodes, job_ptr->total_cpus,
-			     job_ptr->part_ptr->name);
+			     job_ptr->part_ptr->name,time(NULL));
 #endif
 			if (job_ptr->batch_flag == 0)
 				srun_allocate(job_ptr->job_id);
@@ -2707,6 +2707,8 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	struct job_record *job_scan_ptr;
 	ListIterator job_iterator = list_iterator_create(job_list);
 
+	info("%s time_in=%ld job_id=%u",__func__,time(NULL),job_ptr->job_id);
+
 	partitions = xmalloc(part_cnt * sizeof(char*));
 	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 
@@ -2750,6 +2752,8 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	xfree(partitions);
 	xfree(nodes_bitmap);
 	list_iterator_destroy(job_iterator);
+
+	info("%s time_out=%ld job_id=%u",__func__,time(NULL),job_ptr->job_id);
 }
 
 /*

@@ -535,11 +535,11 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 
         total_sim_events++;
         if(!head_simulator_event){
-                info("SIM: Adding new event for job %d when list is empty for future time %ld!", new_event->job_id, new_event->when);
+                info("SIM: Adding new event for job %d when list is empty for future time %ld now %ld duration %ld!", new_event->job_id, new_event->when,now,temp_ptr->duration);
                 head_simulator_event = new_event;
         }else{
                 volatile simulator_event_t *node_temp = head_simulator_event;
-                info("SIM: Adding new event for job %d in the event listi for future time %ld", new_event->job_id, new_event->when);
+                info("SIM: Adding new event for job %d in the event list for future time %ld now %ld duration %ld", new_event->job_id, new_event->when,now,temp_ptr->duration);
 
                 if(head_simulator_event->when > new_event->when){
                         new_event->next = head_simulator_event;
@@ -577,12 +577,12 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
         hostlist_t hl;
         char *node_name;
 
-        info("SIM: Inside of the simulator_rpc_batch_job for %d\n", req->job_id);
-        hl = hostlist_create(req->nodes);
-        while ((node_name = hostlist_shift(hl))) {
-                info("SIM: nodelist %s\n", node_name);
-        }
-        info("SIM: Hostlist printed\n");
+        info("SIM: Inside of the simulator_rpc_batch_job for %d now %ld\n", req->job_id, time(NULL));
+        //hl = hostlist_create(req->nodes);
+        //while ((node_name = hostlist_shift(hl))) {
+        //        info("SIM: nodelist %s\n", node_name);
+        //}
+        //info("SIM: Hostlist printed\n");
 
 
         if (slurm_send_rc_msg(msg, SLURM_SUCCESS) < 1) {

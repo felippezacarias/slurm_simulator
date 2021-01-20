@@ -955,7 +955,7 @@ extern void *backfill_agent(void *args)
 #endif
 	_load_config();
 	last_backfill_time = time(NULL);
-	debug("backfill_agent: last_backfill_time %ld", last_backfill_time);
+	info("backfill_agent: last_backfill_time %ld", last_backfill_time);
 	wait_time = difftime((time_t) 1, last_backfill_time);
 	if(wait_time < 0) last_backfill_time = (time_t) 1;
 #ifdef SLURM_SIMULATOR
