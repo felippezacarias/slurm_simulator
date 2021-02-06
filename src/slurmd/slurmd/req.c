@@ -554,13 +554,13 @@ int simulator_add_future_event(batch_job_launch_msg_t *req){
 
 	total_sim_events++;
 	if(!head_simulator_event){
-		info("SIM: Adding new event for jobid %u when list is empty for future time when %ld wclimit %ld!",
-				new_event->job_id, new_event->when,new_event->hardwhen);
+		info("SIM: Adding new event for jobid %u when list is empty for future time when %ld wclimit %ld now %ld duration %ld!",
+				new_event->job_id, new_event->when,new_event->hardwhen,now,temp_ptr->duration);
 		head_simulator_event = new_event;
 	}else{
 		volatile simulator_event_t *node_temp = head_simulator_event;
-		info("SIM: Adding new event for jobid %u in the event list for future time when %ld wclimit %ld",
-				new_event->job_id, new_event->when,new_event->hardwhen);
+		info("SIM: Adding new event for jobid %u in the event list for future time when %ld wclimit %ld now %ld duration %ld!",
+				new_event->job_id, new_event->when,new_event->hardwhen,now,temp_ptr->duration);
 
 		if(head_simulator_event->when > new_event->when){
 			new_event->next = head_simulator_event;
@@ -598,18 +598,18 @@ simulator_rpc_batch_job(slurm_msg_t *msg)
 	hostlist_t hl, hlmem;
 	char *node_name;
 
-	info("SIM: Inside of the simulator_rpc_batch_job for %u\n", req->job_id);
-	hl = hostlist_create(req->nodes);
-	while ((node_name = hostlist_shift(hl))) {
-		info("SIM: nodelist %s\n", node_name);
-	}
-	info("SIM: Hostlist printed\n");
-
-	hlmem = hostlist_create(req->memory_nodes);
-	while ((node_name = hostlist_shift(hlmem))) {
-        info("SIM: memory nodes nodelist %s\n", node_name);
-    }
-	hostlist_destroy(hlmem);
+	info("SIM: Inside of the simulator_rpc_batch_job for %u now %ld\n", req->job_id, time(NULL));
+	//hl = hostlist_create(req->nodes);
+	//while ((node_name = hostlist_shift(hl))) {
+	//	info("SIM: nodelist %s\n", node_name);
+	//}
+	//info("SIM: Hostlist printed\n");
+	//
+	//hlmem = hostlist_create(req->memory_nodes);
+	//while ((node_name = hostlist_shift(hlmem))) {
+    //    info("SIM: memory nodes nodelist %s\n", node_name);
+    //}
+	//hostlist_destroy(hlmem);
 
 	if (slurm_send_rc_msg(msg, SLURM_SUCCESS) < 1) {
 		error("SIM: Could not confirm batch launch for job %u\n", req->job_id);
@@ -676,7 +676,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 			}
 			if(req->job_id == node_temp->job_id){
 				info("FELIPPE: %s jobid=%u before %ld now at %ld . head_simul at %ld head_id %u",
-						__func__,req->job_id, (node_temp->when), (node_temp->when+now), 
+						__func__,req->job_id, (node_temp->when), (req->duration+now), 
 						head_simulator_event->when,head_simulator_event->job_id);
 				node_temp->when = now + req->duration;	
 			}

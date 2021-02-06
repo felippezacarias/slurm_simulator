@@ -725,7 +725,7 @@ static void _do_diag_stats(long delta_t)
         normal_sched_queue_len = slurmctld_diag_stats.schedule_queue_len;
 		/* FVZ: changing to info, we can revert later */
         //debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
-		info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
+		info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld now %ld", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len,time(NULL));
 	slurmctld_diag_stats.schedule_cycle_counter++;
 }
 
@@ -977,6 +977,13 @@ static int _schedule(uint32_t job_limit)
 		error("%s: cannot set my name to %s %m", __func__, "sched");
 	}
 #endif
+
+	if(sched_update == 0){
+		info("%s now %ld sched_update 0 slurmctld_conf.last_update %ld",__func__,time(NULL),slurmctld_conf.last_update);
+		if(sched_update == slurmctld_conf.last_update){
+			slurmctld_conf.last_update = 1;
+		}
+	}
 
 	if (sched_update != slurmctld_conf.last_update) {
 		char *tmp_ptr;
@@ -1280,6 +1287,7 @@ static int _schedule(uint32_t job_limit)
 	}
 
 	sched_debug("Running job scheduler");
+	info("%s: now %ld",__func__,time(NULL));
 	/*
 	 * If we are doing FIFO scheduling, use the job records right off the
 	 * job list.
