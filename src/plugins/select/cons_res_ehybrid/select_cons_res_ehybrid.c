@@ -2214,7 +2214,7 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 	char *preempt_type, *sched_params, *tmp_ptr;
 	int i, tot_core;
 
-	info("cons_res: select_p_node_init hybrid");
+	info("cons_res: select_p_node_init enhanced hybrid");
 	if ((cr_type & (CR_CPU | CR_CORE | CR_SOCKET)) == 0) {
 		fatal("Invalid SelectTypeParameters: %s (%u), "
 		      "You need at least CR_(CPU|CORE|SOCKET)*",
