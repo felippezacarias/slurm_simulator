@@ -133,6 +133,8 @@ static char *_plugin_id2name(int plugin_id)
 		return "cons_res_localnoself";
 	if (plugin_id == SELECT_PLUGIN_CONS_RES_HYBRID)
 		return "cons_res_hybrid";
+	if (plugin_id == SELECT_PLUGIN_CONS_RES_EHYBRID)
+		return "cons_res_ehybrid";
 	if (plugin_id == SELECT_PLUGIN_LINEAR)
 		return "linear";
 	if (plugin_id == SELECT_PLUGIN_SERIAL)

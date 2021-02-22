@@ -567,6 +567,7 @@ AC_CONFIG_FILES([Makefile
 		 src/plugins/select/cons_res_local/Makefile
 		 src/plugins/select/cons_res_localnoself/Makefile
 		 src/plugins/select/cons_res_hybrid/Makefile
+		 src/plugins/select/cons_res_ehybrid/Makefile
 		 src/plugins/select/cons_strawman/Makefile
 		 src/plugins/select/cons_tres/Makefile
 		 src/plugins/select/cray_aries/Makefile
