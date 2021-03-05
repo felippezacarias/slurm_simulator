@@ -779,6 +779,28 @@ static int _is_node_busy(struct part_res_record *p_ptr, uint32_t node_i,
 	return 0;
 }
 
+/* we will use the node only as memory node if it has cores allocated for any partiton */
+static int _has_core_allocated(struct part_res_record *p_ptr, uint32_t node_i)
+{
+	uint32_t r, cpu_begin = cr_get_coremap_offset(node_i);
+	uint32_t i, cpu_end   = cr_get_coremap_offset(node_i+1);
+	uint16_t num_rows;
+
+	for (; p_ptr; p_ptr = p_ptr->next) {
+		num_rows = p_ptr->num_rows;
+		if (!p_ptr->row)
+			continue;
+		for (r = 0; r < num_rows; r++) {
+			if (!p_ptr->row[r].row_bitmap)
+				continue;
+			for (i = cpu_begin; i < cpu_end; i++) {
+				if (bit_test(p_ptr->row[r].row_bitmap, i))
+					return 1;
+			}
+		}
+	}
+	return 0;
+}
 
 /*
  * Determine which of these nodes are usable by this job
@@ -889,6 +911,9 @@ static int _verify_node_state(struct part_res_record *cr_part_ptr,
 				goto clear_bit;
 			}
 		}
+
+		if(_has_core_allocated(cr_part_ptr, i))
+			goto clear_bit;
 
 		/* node-level gres check */
 		if (node_usage[i].gres_list)
@@ -3435,7 +3460,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 {
 	static int gang_mode = -1;
 	int error_code = SLURM_SUCCESS;
-	bitstr_t *orig_map, *avail_cores, *free_cores, *part_core_map = NULL;
+	bitstr_t *orig_map, *orig_mem_map, *avail_cores, *free_cores, *part_core_map = NULL;
 	bitstr_t *free_cores_tmp = NULL,  *node_bitmap_tmp = NULL;
 	bitstr_t *free_cores_tmp2 = NULL, *node_bitmap_tmp2 = NULL;
 	bitstr_t *memory_pool_map = NULL;
@@ -3471,6 +3496,10 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		test_only = false;
 		will_run = true;
 	}
+
+	/* FVZ: initialize the memory_pool_bitmap */
+	memory_pool_map = bit_copy(node_bitmap);
+	orig_mem_map = bit_copy(node_bitmap);
 
 	/* check node_state and update the node_bitmap as necessary */
 	if (!test_only) {
@@ -3515,8 +3544,6 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	orig_map = bit_copy(node_bitmap);
 	avail_cores = make_core_bitmap(node_bitmap,
 				       job_ptr->details->core_spec);
-	/* FVZ: initialize the memory_pool_bitmap */
-	memory_pool_map = bit_copy(node_bitmap);
 
 	/* test to make sure that this job can succeed with all avail_cores
 	 * if 'no' then return FAIL
@@ -3542,7 +3569,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		avail_cores = make_core_bitmap(node_bitmap,
 						job_ptr->details->core_spec);
 		/* FVZ: initialize the memory_pool_bitmap */
-		bit_copybits(memory_pool_map,node_bitmap);
+		bit_copybits(memory_pool_map,orig_mem_map);
 
 		bit_copybits(free_cores,avail_cores);
 		//debug5("FELIPPE: %s before _select_nodes [false] evaluating job %u on %u nodes test_only %d",
@@ -3557,6 +3584,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	if (cpu_count == NULL) {
 		/* job cannot fit */
 		FREE_NULL_BITMAP(orig_map);
+		FREE_NULL_BITMAP(orig_mem_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
 		FREE_NULL_BITMAP(memory_pool_map);
@@ -3569,6 +3597,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		return SLURM_ERROR;
 	} else if (test_only) {
 		FREE_NULL_BITMAP(orig_map);
+		FREE_NULL_BITMAP(orig_mem_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
 		/* FVZ: on test only must have this free */
@@ -3579,6 +3608,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 		return SLURM_SUCCESS;
 	} else if (!job_ptr->best_switch) {
 		FREE_NULL_BITMAP(orig_map);
+		FREE_NULL_BITMAP(orig_mem_map);
 		FREE_NULL_BITMAP(free_cores);
 		FREE_NULL_BITMAP(avail_cores);
 		FREE_NULL_BITMAP(memory_pool_map);
@@ -3636,7 +3666,7 @@ extern int cr_job_test(struct job_record *job_ptr, bitstr_t *node_bitmap,
 	/*** Step 1 ***/
 	bit_copybits(node_bitmap, orig_map);
 	bit_copybits(free_cores, avail_cores);
-	bit_copybits(memory_pool_map,orig_map);
+	bit_copybits(memory_pool_map,orig_mem_map);
 
 	if (exc_core_bitmap) {
 		int exc_core_size  = bit_size(exc_core_bitmap);
@@ -3987,6 +4017,7 @@ alloc_job:
 	 * distribute the job on the bits, and exit
 	 */
 	FREE_NULL_BITMAP(orig_map);
+	FREE_NULL_BITMAP(orig_mem_map);
 	FREE_NULL_BITMAP(part_core_map);
 	FREE_NULL_BITMAP(free_cores_tmp);
 	FREE_NULL_BITMAP(node_bitmap_tmp);
