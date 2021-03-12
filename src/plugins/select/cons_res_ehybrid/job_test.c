@@ -709,7 +709,7 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 			cpus = 0;
 		}
 
-		node_ptr->sched_weight = 0;
+		node_ptr->sched_weight = select_node_record[node_i].real_memory;
 	}else {
 		/* Apply a weight to the node.
 		favor nodes with higher memory avail */
