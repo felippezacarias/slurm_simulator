@@ -736,7 +736,7 @@ _simulator_helper(void *arg)
                         aux->next = head_sim_completed_jobs;
                         head_sim_completed_jobs = aux;
                         total_sim_events--;
-                        info("SIM: Sending JOB_COMPLETE_BATCH_SCRIPT for job %d", event_jid);
+                        info("SIM: Sending JOB_COMPLETE_BATCH_SCRIPT for job %d when %ld now %ld", event_jid,aux->when,now);
                         pthread_mutex_unlock(&simulator_mutex);
                         if(_send_complete_batch_script_msg(event_jid, SLURM_SUCCESS, 0) == SLURM_SUCCESS) { 
 				pthread_mutex_lock(&simulator_mutex);

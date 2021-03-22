@@ -725,7 +725,7 @@ static void _do_diag_stats(long delta_t)
         normal_sched_queue_len = slurmctld_diag_stats.schedule_queue_len;
 		/* FVZ: changing to info, we can revert later */
         //debug("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
-		info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld ", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len);
+		info("stats: normal sched total time %lld, counter %ld, number of jobs in queue %ld now %ld", normal_sched_total_time, normal_sched_counter, normal_sched_queue_len,time(NULL));
 	slurmctld_diag_stats.schedule_cycle_counter++;
 }
 
@@ -977,6 +977,13 @@ static int _schedule(uint32_t job_limit)
 		error("%s: cannot set my name to %s %m", __func__, "sched");
 	}
 #endif
+
+	if(sched_update == 0){
+		info("%s now %ld sched_update 0 slurmctld_conf.last_update %ld",__func__,time(NULL),slurmctld_conf.last_update);
+		if(sched_update == slurmctld_conf.last_update){
+			slurmctld_conf.last_update = 1;
+		}
+	}
 
 	if (sched_update != slurmctld_conf.last_update) {
 		char *tmp_ptr;
@@ -1280,6 +1287,7 @@ static int _schedule(uint32_t job_limit)
 	}
 
 	sched_debug("Running job scheduler");
+	info("%s: now %ld",__func__,time(NULL));
 	/*
 	 * If we are doing FIFO scheduling, use the job records right off the
 	 * job list.
@@ -2436,52 +2444,52 @@ static void _set_pack_env(struct job_record *pack_leader,
 extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
 	bitstr_t** nodes_bitmap;
 	int32_t nodes = 0;
+	uint64_t* mem_alloc;
 	int i = 0;
 	int part_cnt = list_count(part_list);
 	char *last_part = NULL, **partitions=NULL;
 	struct job_record *job_scan_ptr;
+	struct part_record *part_ptr;
 	ListIterator job_iterator = list_iterator_create(job_list);
+	ListIterator part_iterator = list_iterator_create(part_list);
 
 	partitions = xmalloc(part_cnt * sizeof(char*));
 	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
+	mem_alloc = xmalloc(part_cnt * sizeof(uint64_t));
+
+	while ((part_ptr = (struct part_record *) list_next(part_iterator))) {
+		partitions[i] = xstrdup(part_ptr->name);
+		nodes_bitmap[i] = NULL;
+		mem_alloc[i] = 0;
+		i++;
+	}
+	list_iterator_destroy(part_iterator);
 
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 		if(IS_JOB_RUNNING(job_scan_ptr)){
-
-			if(last_part == NULL){
-				last_part = xstrdup(job_scan_ptr->partition);
-				partitions[i] = xstrdup(job_scan_ptr->partition);
+			i = 0;
+			while((strcmp(partitions[i],job_scan_ptr->partition) != 0))
+				i++;
+			if(nodes_bitmap[i] == NULL){
 				nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
-				for(int x=1; x < part_cnt; x++){
-					partitions[x] = NULL;
-					nodes_bitmap[x] = NULL;
-				}
 			}else{
-				//another partition
-				if(strcmp(last_part,job_scan_ptr->partition) != 0){
-					i = (i+1)%part_cnt;
-					xfree(last_part);
-					last_part = xstrdup(job_scan_ptr->partition);
-					if(partitions[i] == NULL){
-						partitions[i] = xstrdup(job_scan_ptr->partition);
-						nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
-					}
-				}
+				bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
 			}
-			
-			bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
+			for(int x = 0; x < job_scan_ptr->job_resrcs->nhosts; x++)
+				mem_alloc[i] += job_scan_ptr->job_resrcs->memory_allocated[x]; 
 		}
 	}
 
 	for(int x=0; x < part_cnt; x++){
 		nodes = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
-		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyalloc=%d additionalnode=0 partition=%s type=%s",
-			__func__,now,job_ptr->job_id,nodes,partitions[x],type);
+		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyallocated=%d mem_allocated=%u partition=%s type=%s",
+			__func__,now,job_ptr->job_id,nodes,mem_alloc[x],partitions[x],type);
 		xfree(partitions[x]);
 		FREE_NULL_BITMAP(nodes_bitmap[x]);
 	}
 
 	xfree(last_part);
+	xfree(mem_alloc);
 	xfree(partitions);
 	xfree(nodes_bitmap);
 	list_iterator_destroy(job_iterator);
