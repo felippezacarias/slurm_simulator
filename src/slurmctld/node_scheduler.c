@@ -412,7 +412,7 @@ extern void allocate_nodes(struct job_record *job_ptr)
 	}
 
 	/* FVZ: Dealing with memory nodes */
-	debug5("FELIPPE: %s job_id %u - nodes %u memory_nodes %u memory_pool nodes %s share %u job_nodes %u",
+	debug5("SDDEBUG: %s job_id %u - nodes %u memory_nodes %u memory_pool nodes %s share %u job_nodes %u",
 			__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res,job_ptr->node_cnt);
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 	     i++, node_ptr++) {
@@ -570,7 +570,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 				front_end_ptr->node_state = NODE_STATE_IDLE |
 							    state_flags;
 			}
-			debug5("FELIPPE: %s if (job_ptr->batch_host && frontend job_id %u, frontend %s nodes %s memory_nodes %s job_nodes %u",
+			debug5("SDDEBUG: %s if (job_ptr->batch_host && frontend job_id %u, frontend %s nodes %s memory_nodes %s job_nodes %u",
 					__func__,job_ptr->job_id,front_end_ptr->name,job_ptr->job_resrcs->nodes,job_ptr->job_resrcs->memory_nodes,job_ptr->node_cnt);
 			for (i = 0, node_ptr = node_record_table_ptr;
 			     i < node_record_count; i++, node_ptr++) {
@@ -594,7 +594,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	if (!job_ptr->node_bitmap_cg)
 		build_cg_bitmap(job_ptr);
 	agent_args->protocol_version = SLURM_PROTOCOL_VERSION;
-	debug5("FELIPPE: %s job_id %u  for %u cg_nodes nodes %s",
+	debug5("SDDEBUG: %s job_id %u  for %u cg_nodes nodes %s",
 			__func__,job_ptr->job_id,bit_set_count(job_ptr->node_bitmap_cg),job_ptr->nodes);
 	for (i = 0, node_ptr = node_record_table_ptr;
 	     i < node_record_count; i++, node_ptr++) {
@@ -630,7 +630,7 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	}
 #endif
 
-	//debug5("FELIPPE: %s job_id %u  for %u memory_pool nodes %s",
+	//debug5("SDDEBUG: %s job_id %u  for %u memory_pool nodes %s",
 	//		__func__,job_ptr->job_id,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes);
 	//if(job_ptr->job_resrcs && job_ptr->job_resrcs->memory_pool_bitmap){
 	//	for (i = 0, node_ptr = node_record_table_ptr;
@@ -662,9 +662,9 @@ extern void deallocate_nodes(struct job_record *job_ptr, bool timeout,
 	//		//if (agent_args->protocol_version > node_ptr->protocol_version)
 	//		//	agent_args->protocol_version =
 	//		//		node_ptr->protocol_version;
-	//		//FELIPPE: this is generating a error, Unable to resolve "node_name"
-	//		//FELIPPE: it is only happing here for memory nodes on front end mode
-	//		//FELIPPE: see if it also happens on normal mode
+	//		//SDDEBUG: this is generating a error, Unable to resolve "node_name"
+	//		//SDDEBUG: it is only happing here for memory nodes on front end mode
+	//		//SDDEBUG: see if it also happens on normal mode
 	//		//hostlist_push_host(agent_args->hostlist, node_ptr->name);
 	//		//agent_args->node_count++;
 	//	}
@@ -2001,7 +2001,7 @@ _pick_best_nodes(struct node_set *node_set_ptr, int node_set_size,
 
 	shared = _resolve_shared_status(job_ptr, part_ptr->max_share,
 					cr_enabled);
-	//debug5("FELIPPE: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
+	//debug5("SDDEBUG: %s after _resolve_shared_status jobid %u shared %d requested shared  %d",__func__,job_ptr->job_id,shared,job_ptr->details->share_res);
 
 	if (cr_enabled)
 		job_ptr->cr_enabled = cr_enabled; /* CR enabled for this job */
@@ -2812,7 +2812,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	can_reboot = node_features_g_user_update(job_ptr->user_id);
 	error_code = _build_node_list(job_ptr, &node_set_ptr, &node_set_size,
 				      err_msg, test_only, can_reboot);
-  	//debug5("FELIPPE: %s after _build_node_list jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
+  	//debug5("SDDEBUG: %s after _build_node_list jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	if (error_code)
 		return error_code;
 	if (node_set_ptr == NULL)	/* Should never be true */
@@ -2875,7 +2875,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	if(select_bitmap){
 		char *name;
 		name = bitmap2node_name(select_bitmap);
-		debug5("FELIPPE: %s jobid %u select_node_count %d  name %s",__func__,job_ptr->job_id,bit_set_count(select_bitmap),name);
+		debug5("SDDEBUG: %s jobid %u select_node_count %d  name %s",__func__,job_ptr->job_id,bit_set_count(select_bitmap),name);
 		xfree(name);
 	}
 	#endif
@@ -3156,7 +3156,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 		}
 	}
 
-	debug5("FELIPPE: %s node_env_state before allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
+	debug5("SDDEBUG: %s node_env_state before allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 
@@ -3165,7 +3165,7 @@ extern int select_nodes(struct job_record *job_ptr, bool test_only,
 	build_node_details(job_ptr, true);
 	rebuild_job_part_list(job_ptr);
 
-	debug5("FELIPPE: %s node_env_state after allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
+	debug5("SDDEBUG: %s node_env_state after allocate jobid %u idle_nodes %d share_nodes %d avail_nodes %d",
 			__func__,job_ptr->job_id,bit_set_count(idle_node_bitmap),bit_set_count(share_node_bitmap),bit_set_count(avail_node_bitmap));
 
 
@@ -3257,7 +3257,7 @@ cleanup:
 			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
 	}
 
-	//debug5("FELIPPE: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
+	//debug5("SDDEBUG: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);
 	return error_code;
 }
 
@@ -3927,18 +3927,18 @@ static int _build_node_list(struct job_record *job_ptr,
 
 	/* FVZ: first check if the required memory fits using all configs (different node sets) within the partition */
 	config_iterator = list_iterator_create(config_list);
-	//debug5("FELIPPE: %s checking total partition memory avialable",__func__);
+	//debug5("SDDEBUG: %s checking total partition memory avialable",__func__);
 	while ((config_ptr = (struct config_record *)
 			list_next(config_iterator))) {
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
 			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
 			part_total_mem_avail += (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
-			debug5("FELIPPE: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",
+			debug5("SDDEBUG: %s config_ptr nodes %s config_ptr mem %lu part_total_mem_avail %lu",
 					__func__,config_ptr->nodes,config_ptr->real_memory,part_total_mem_avail);
 			FREE_NULL_BITMAP(config_nodes_part_bitmap);
 	}
 	list_iterator_destroy(config_iterator);
-	//debug5("FELIPPE: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
+	//debug5("SDDEBUG: %s total partition memory avialable %lu",__func__,part_total_mem_avail);
 
 	config_iterator = list_iterator_create(config_list);
 	while ((config_ptr = (struct config_record *)
@@ -3964,7 +3964,7 @@ static int _build_node_list(struct job_record *job_ptr,
 			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
 			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
 			config_total_mem_avail = (bit_set_count(config_nodes_part_bitmap) * config_ptr->real_memory);
-			debug5("FELIPPE: %s requested_mem %lu config_nodes_on_part %zu config_realmemory %lu config_total_mem_avail %lu",
+			debug5("SDDEBUG: %s requested_mem %lu config_nodes_on_part %zu config_realmemory %lu config_total_mem_avail %lu",
 					__func__,requested_mem,bit_set_count(config_nodes_part_bitmap),config_ptr->real_memory,config_total_mem_avail);
 			FREE_NULL_BITMAP(config_nodes_part_bitmap);
 			if((requested_mem < config_total_mem_avail) || (requested_mem < part_total_mem_avail))
@@ -4642,7 +4642,7 @@ extern void build_node_details(struct job_record *job_ptr, bool new_alloc)
 	}
 	hostlist_destroy(host_list);
 
-	debug5("FELIPPE: %s Adding memory nodes[%u] %s address to job_id %u",__func__,mem_nodes,list_nodes,job_ptr->job_id);
+	debug5("SDDEBUG: %s Adding memory nodes[%u] %s address to job_id %u",__func__,mem_nodes,list_nodes,job_ptr->job_id);
 	if(mem_nodes > 0){
 		if ((host_list = hostlist_create(list_nodes)) == NULL)
 			fatal("hostlist_create error for memory nodes %s: %m", list_nodes);

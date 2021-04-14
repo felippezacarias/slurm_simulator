@@ -848,7 +848,7 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 		i_last = -2;
 	else
 		i_last = bit_fls(job->node_bitmap);*/
-	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for %u nodes",__func__,job_ptr->job_id,job->nhosts);
+	debug5("SDDEBUG: %s Fill in select_node_usage of job_id %u for %u nodes",__func__,job_ptr->job_id,job->nhosts);
 	bitmap_index(job->node_bitmap,&i_first,&i_last);
 	for (i = i_first, n = -1; i <= i_last; i++) {
 		if (!bit_test(job->node_bitmap, i))
@@ -886,16 +886,16 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 	}
 
 	/* FVZ: Doing node usage actualization for memory pool */
-	debug5("FELIPPE: %s Fill in select_node_usage of job_id %u for %u memory_pool nodes",__func__,job_ptr->job_id,job->memory_nhosts);
+	debug5("SDDEBUG: %s Fill in select_node_usage of job_id %u for %u memory_pool nodes",__func__,job_ptr->job_id,job->memory_nhosts);
 	if(job->memory_pool_bitmap == NULL){
-			debug5("FELIPPE: %s memory_pool_bitmap is NULL!!",__func__);
+			debug5("SDDEBUG: %s memory_pool_bitmap is NULL!!",__func__);
 			return SLURM_ERROR;
 	}
 	
 	bitmap_index(job->memory_pool_bitmap,&i_first,&i_last);
 	//n = (int)job->nhosts;
 	n = 0;
-	debug5("FELIPPE: %s %u memory_pool_nodes %d i_first %d I_last %d index_n",__func__,bit_set_count(job->memory_pool_bitmap),i_first,i_last,n);
+	debug5("SDDEBUG: %s %u memory_pool_nodes %d i_first %d I_last %d index_n",__func__,bit_set_count(job->memory_pool_bitmap),i_first,i_last,n);
 	for (i = i_first; i <= i_last; i++) {
 		if (!bit_test(job->memory_pool_bitmap, i))
 			continue;
@@ -911,7 +911,7 @@ static int _add_job_to_res(struct job_record *job_ptr, int action)
 					select_node_usage[i].alloc_memory,
 					job_ptr);
 			}
-			debug5("FELIPPE: %s [%d].[n=%d] node %s job_alloced_mem %lu usage %lu",__func__,i,n,select_node_record[i].node_ptr->name,job->memory_allocated[n],select_node_usage[i].alloc_memory);
+			debug5("SDDEBUG: %s [%d].[n=%d] node %s job_alloced_mem %lu usage %lu",__func__,i,n,select_node_record[i].node_ptr->name,job->memory_allocated[n],select_node_usage[i].alloc_memory);
 
 			n++;
 		}
@@ -1241,7 +1241,7 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 		last_bit = -2;
 	else
 		last_bit =  bit_fls(job->node_bitmap);
-	debug5("FELIPPE: %s Deallocating job resources of job_id %u nodes %u",
+	debug5("SDDEBUG: %s Deallocating job resources of job_id %u nodes %u",
 					__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts);
 	for (i = first_bit, n = -1; i <= last_bit; i++) {
 		if (!bit_test(job->node_bitmap, i))
@@ -1293,7 +1293,7 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 			continue;
 
 		if (action != 2) {
-			debug5("FELIPPE: %s Deallocating job resources of job_id %u memory_node %d idx %d memory_allocated %lu",
+			debug5("SDDEBUG: %s Deallocating job resources of job_id %u memory_node %d idx %d memory_allocated %lu",
 					__func__,job_ptr->job_id,i,idx,job->memory_allocated[idx]);
 			if (node_usage[i].alloc_memory <
 			    job->memory_allocated[idx]) {
@@ -1659,7 +1659,7 @@ top:	orig_map = bit_copy(save_bitmap);
 			 select_node_usage, exc_core_bitmap, false, false,
 			 preempt_mode);
 
-	debug5("FELIPPE: %s after cr_job_test jobid %u error_code %d",__func__,job_ptr->job_id,rc);
+	debug5("SDDEBUG: %s after cr_job_test jobid %u error_code %d",__func__,job_ptr->job_id,rc);
 	if ((rc != SLURM_SUCCESS) && preemptee_candidates && preempt_by_qos) {
 		/* Determine QOS preempt mode of first job */
 		job_iterator = list_iterator_create(preemptee_candidates);
@@ -2603,7 +2603,7 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 
 	}
 
-	info("FELIPPE: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
+	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
 
 	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
 
