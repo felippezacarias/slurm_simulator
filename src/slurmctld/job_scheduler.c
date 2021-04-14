@@ -1663,7 +1663,7 @@ next_task:
 			job_ptr->start_time	= now;
 			job_ptr->end_time	= now;
 			job_completion_logger(job_ptr, false);
-			debug5("FELIPPE: %s Cancelling jobid %u return_code %d",
+			debug5("SDDEBUG: %s Cancelling jobid %u return_code %d",
 					__func__,job_ptr->job_id,error_code);
 			continue;
 		}

@@ -201,7 +201,7 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 	jobresc = job->job_resrcs;
 	details = job->details;
 
-	debug5("FELIPPE: %s for job %u",__func__,job->job_id);
+	debug5("SDDEBUG: %s for job %u",__func__,job->job_id);
 
 	j->jobid = job->job_id;
 	j->exit_code = job->exit_code;
