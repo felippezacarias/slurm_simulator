@@ -615,7 +615,8 @@ fini:
  * IN test_only     - Determine if job could ever run, ignore allocated memory
  *		      check
  * IN will_run      - Determining when a pending job can start
- * IN is_default 	- Determining if the node should be excluded based on its memory
+ * IN sched_weight  - Sched weight to select nodes acording the default selection
+ * IN is_default 	- Determining if the node should be excluded based on its configuration
  *
  * NOTE: The returned cpu_count may be less than the number of set bits in
  *       core_map for the given node. The cr_dist functions will determine
@@ -625,7 +626,7 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 			      const uint32_t node_i, uint32_t s_p_n,
 			      struct node_use_record *node_usage,
 			      uint16_t cr_type, bool test_only,
-			      bool will_run, bitstr_t *part_core_map, bool is_default)
+			      bool will_run, bitstr_t *part_core_map, uint64_t sched_weight, bool is_default)
 {
 	uint16_t cpus;
 	uint64_t avail_mem, req_mem;
@@ -709,7 +710,7 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 			cpus = 0;
 		}
 
-		node_ptr->sched_weight = select_node_record[node_i].real_memory;
+		node_ptr->sched_weight = sched_weight;
 	}else {
 		/* Apply a weight to the node.
 		favor nodes with higher memory avail */
@@ -1291,15 +1292,23 @@ static void _get_res_usage(struct job_record *job_ptr, bitstr_t *node_map,
 	uint16_t *cpu_cnt;
 	uint32_t n;
 	uint32_t s_p_n = _socks_per_node(job_ptr);
+	uint64_t last_check_mem = 0, sched_weight = NO_VAL;
+	struct node_record *node_ptr = NULL;
 
 	cpu_cnt = xmalloc(cr_node_cnt * sizeof(uint16_t));
 	for (n = 0; n < cr_node_cnt; n++) {
 		if (!bit_test(node_map, n))
 			continue;
+		node_ptr = node_record_table_ptr + n;
+		// var used only for default allocation
+		if(last_check_mem != node_ptr->config_ptr->real_memory){
+			last_check_mem = node_ptr->config_ptr->real_memory;
+			sched_weight += NO_VAL8;
+		}
 		cpu_cnt[n] = _can_job_run_on_node(job_ptr, core_map, n, s_p_n,
 						  node_usage, cr_type,
 						  test_only, will_run,
-						  part_core_map,is_default);
+						  part_core_map,sched_weight,is_default);
 	}
 	*cpu_cnt_ptr = cpu_cnt;
 }
