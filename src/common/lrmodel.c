@@ -132,7 +132,7 @@ double read_app_remote_ratio(int target_, int target_procs){
 
     has_info = boundary(target_procs,list_size,list_nodes,&lb,&ub);
 
-    fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+    fp = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/app_info_list_ratio.csv", "r");
 
     while (fgets(line, 1024, fp))
     {
@@ -194,7 +194,7 @@ void interfering_bw_rw(int interf_, int interf_procs, int idx, int is_local, int
 
     has_info = boundary(interf_procs,list_size,list_nodes,&lb,&ub);
 
-    fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+    fp = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/app_info_list_ratio.csv", "r");
 
     while (fgets(line, 1024, fp))
     {
@@ -286,7 +286,7 @@ int list_of_nodes(int app_, int **list_procs){
     int list_count=0, last_seen=0, included;
     FILE *fp = NULL;
 
-    fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+    fp = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/app_info_list_ratio.csv", "r");
     
     while (fgets(line, 1024, fp))
     {
@@ -450,7 +450,7 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, int is_loc
     if(is_local)
         N = 5;
 
-    file = fopen("/home/user/curves_final_local_remote_sensitivity.csv", "r");
+    file = fopen("/home/bscuser/Dropbox/BSC_UPC/SLURM_SIMULATOR/workload_traces/extending_trace/mpi/curves_final_local_remote_sensitivity.csv", "r");
 
     //check whether the file has the real app_proc info or whether it is necessary extrapolate
     list_size = list_of_nodes(app_,&list_procs);

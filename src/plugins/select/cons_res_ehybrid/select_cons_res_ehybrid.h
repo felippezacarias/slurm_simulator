@@ -113,6 +113,7 @@ extern uint64_t select_debug_flags;
 extern uint16_t select_fast_schedule;
 extern bool     spec_cores_first;
 extern bool     topo_optional;
+extern int		param_alloc_group;
 
 extern struct part_res_record *select_part_record;
 extern struct node_res_record *select_node_record;

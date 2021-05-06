@@ -3067,7 +3067,7 @@ static int _eval_memory(struct job_record *job_ptr,
 	int i, nodes, mem_nodes, error_code = SLURM_ERROR;
 	uint64_t tot_req_mem = 0, req_mem = 0, tot_alloc_mem = 0, per_node = 0;
 	uint64_t free_mem, remaining = 0;
-	int *mem_rem_per_node;
+	int *mem_rem_per_node, *node_id;
 	int i_first, i_last, idx = 0;
 	char *node_name,*mem_node_name;
 	bitstr_t *orig_map;
@@ -3079,15 +3079,11 @@ static int _eval_memory(struct job_record *job_ptr,
 	nodes 	  = bit_set_count(node_map);
 	mem_nodes = bit_set_count(memory_pool_map);
 
-	//if(mem_nodes < nodes){
-	//	//not sufficient memory nodes to avoid self interference
-	//	debug5("SDDEBUG: %s for job_id %u mem_nodes < nodes (%d < %d)! Insufficient to avoid self interference.",__func__,job_ptr->job_id,mem_nodes,nodes);
-	//	return error_code;
-	//}
-
 	node_name = bitmap2node_name(node_map);
 	mem_rem_per_node = xmalloc(nodes * sizeof(int));
+	node_id = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
+	memset(node_id,-1,nodes);
 	
 	/*FVZ: it is the difference between nodes which has memory available, and nodes
 	 * chosen to execute the job.*/
@@ -3140,6 +3136,7 @@ static int _eval_memory(struct job_record *job_ptr,
 		per_node = (job_ptr->details->pn_min_memory & MEM_PER_CPU) ? select_node_record[i].cpus * req_mem : req_mem;
 
 		mem_rem_per_node[idx] = per_node - free_mem; // think req_mem as per_cpu rewrite to per_node as well
+		node_id[idx] = i;
 		debug5("SDDEBUG: %s for job_id %u node %s free_mem %lu per_node %lu  mem_rem_per_node[%d] %d",
              __func__,job_ptr->job_id,select_node_record[i].node_ptr->name,free_mem,per_node,idx, mem_rem_per_node[idx]);
 		idx++;
@@ -3157,14 +3154,65 @@ static int _eval_memory(struct job_record *job_ptr,
 
 	/* FVZ: Iterate over memory_pool to increase memory */
 	if(tot_alloc_mem < tot_req_mem){
-		idx = 0;
+		//idx = 0;
 		mem_nodes = bit_set_count(memory_pool_map);
-		i_first = bit_ffs(orig_map);
+		/*i_first = bit_ffs(orig_map);
 		if (i_first == -1)
 			i_last = -2;
 		else
 			i_last  = bit_fls(orig_map);
-		for (i = i_first; i <= i_last; i++) {
+		*/
+		int64_t size = bit_size(node_map); // total number of nodes
+		//int group = 2;
+		//here ii is < idx because it starts with 0 and finishes one index ahead of the last record
+		for(int ii=0; ii<idx; ii++){
+			//the node does not need remote memory
+			if(mem_rem_per_node[ii] <=0)
+				continue;
+			
+			//check which group this node can borrow memory
+			//if the node is in the first half it should borrow memory from the group on the other half.
+			int direction = (node_id[ii]>=size/2) ? -(size/2) : (size/2);
+			if(param_alloc_group == size) 
+				direction = 0;
+			int min_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii] : node_id[ii]-(node_id[ii]%param_alloc_group);
+			int max_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii]+param_alloc_group-1 : node_id[ii]+(param_alloc_group-node_id[ii]%param_alloc_group)-1;
+
+			debug5("SDDEBUG: %s size %lu group %d node_id[%d] %d direction %d, min_idx %d max_idx %d mem_rem_per_node[%d] %d",
+						__func__,size,param_alloc_group,ii,node_id[ii],direction,min_idx,max_idx,ii,mem_rem_per_node[ii]);
+
+			for (i = (min_idx+direction); i <= (max_idx+direction); i++) {
+				if (!bit_test(orig_map, i))
+					continue;
+				
+				if(mem_rem_per_node[ii] <=0)
+					break;
+
+				free_mem = select_node_record[i].real_memory;
+				if(!test_only)	free_mem -= node_usage[i].alloc_memory;			
+				
+				if(mem_rem_per_node[ii] > free_mem){
+					mem_rem_per_node[ii] -= free_mem;
+					tot_alloc_mem += free_mem;
+				}
+				else{
+					tot_alloc_mem += mem_rem_per_node[ii];
+					mem_rem_per_node[ii] = 0;
+				}
+
+				bit_clear(orig_map,i); //cleaning used mem_node. so each cpu node will have only one corresponding mem_node			
+				bit_set(memory_pool_map,i);
+				debug5("SDDEBUG: %s [memory node %s free_mem %lu] total allocated up now %lu mem_rem_per_node[%d] %d",
+						__func__,select_node_record[i].node_ptr->name,free_mem,tot_alloc_mem,ii,mem_rem_per_node[ii]);
+				mem_nodes++;
+			}
+			if(mem_rem_per_node[ii] > 0){
+				debug5("SDDEBUG: %s was not possible allocate memory for node %s on its group! Memory left %d",
+						__func__,select_node_record[node_id[ii]].node_ptr->name,mem_rem_per_node[ii]);
+			}
+		}
+
+		/*for (i = i_first; i <= i_last; i++) {
 			if (!bit_test(orig_map, i))
 				continue;
 			free_mem = select_node_record[i].real_memory;
@@ -3198,7 +3246,7 @@ static int _eval_memory(struct job_record *job_ptr,
 				xfree(mem_node_name);
 				break;
 			}
-		}
+		}*/
 	}
 	else
 	{
@@ -3207,14 +3255,19 @@ static int _eval_memory(struct job_record *job_ptr,
 	}	
 
 	xfree(mem_rem_per_node);
+	xfree(node_id);
 	xfree(node_name);
 	FREE_NULL_BITMAP(orig_map);
 	 
 	if(tot_alloc_mem < tot_req_mem) {
-		debug("SDDEBUG: %s for job_id %u was not possible to allocate enough memory %lu of %lu for this job to avoid self interference. nodes - mem_nodes (%d - %d)",
+		debug("SDDEBUG: %s for job_id %u was not possible to allocate enough memory %lu of %lu for this job. nodes - mem_nodes (%d - %d)",
 				__func__,job_ptr->job_id,tot_alloc_mem,tot_req_mem,nodes,mem_nodes);		
-		return SLURM_ERROR;
+		 error_code = SLURM_ERROR;
 	}
+	else{
+		error_code = SLURM_SUCCESS;
+	}
+
 	return error_code;
 }
 
@@ -4315,15 +4368,22 @@ alloc_job:
 	int idx = 0;
 	int idx_mem = -1, idx_cpu = -1;
 	uint64_t avail = 0, rem = 0, min_cpus, allocated;
-	int *mem_rem_per_node=NULL;
+	int *mem_rem_per_node=NULL, *node_id=NULL, *node_remote_mem=NULL;
 	uint32_t nodes;
 	bool using_nodes = false;
 	bool mem_avail = false;
+	bitstr_t *map_copy;
 
 	nodes = bit_set_count(job_res->node_bitmap);
 
 	mem_rem_per_node = xmalloc(nodes * sizeof(int));
+	node_id = xmalloc(nodes * sizeof(int));
+	node_remote_mem = xmalloc(bit_set_count(job_res->memory_pool_bitmap) * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
+	memset(node_id,-1,nodes);
+	memset(node_remote_mem,-1,nodes);
+
+	map_copy = bit_copy(job_res->memory_pool_bitmap);
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
 		save_mem = (save_mem &= (~MEM_PER_CPU));
@@ -4358,6 +4418,7 @@ alloc_job:
 				continue;
 
 			idx_mem++;
+			node_remote_mem[idx_mem]=i;
 
 			if(!bit_test(job_res->node_bitmap, i))
                 continue;
@@ -4376,7 +4437,8 @@ alloc_job:
 
 
 			job_res->memory_allocated[idx_mem] = allocated;
-			mem_rem_per_node[idx_cpu] = allocated - avail;		 
+			mem_rem_per_node[idx_cpu] = allocated - avail;
+			node_id[idx_cpu] = i;		 
 			if(allocated >= avail){
 				job_res->memory_allocated[idx_mem] = avail;
 				rem -=  avail;
@@ -4410,6 +4472,7 @@ alloc_job:
 				continue;
 			
 			idx_mem++;
+			node_remote_mem[idx_mem]=i;
 
 			if(!bit_test(job_res->node_bitmap, i))
                 continue;
@@ -4420,7 +4483,8 @@ alloc_job:
 											node_usage[i].alloc_memory;
 
 			job_res->memory_allocated[idx_mem] = save_mem;	
-			mem_rem_per_node[idx_cpu] = save_mem - avail;		 
+			mem_rem_per_node[idx_cpu] = save_mem - avail;
+			node_id[idx_cpu] = i;		 
 			if(save_mem >= avail){
 				job_res->memory_allocated[idx_mem] = avail;	
 				rem -=  avail;
@@ -4441,7 +4505,7 @@ alloc_job:
 	}
 
 	// Using memory_nodes != cpu_nodes
-	if(rem){
+	/*if(rem){
 		idx_mem = -1;
 		idx_cpu = 0;
 		first = bit_ffs(job_res->memory_pool_bitmap);
@@ -4488,11 +4552,71 @@ alloc_job:
 					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,idx_cpu,mem_rem_per_node[idx_cpu]);
 		}
 	}
+	*/
+	if(rem){
+		int64_t size = bit_size(job_res->node_bitmap); // total number of nodes
+		//here ii is <=idx_cpu because idx_cpu starts with -1 and finishes on the last index
+		for(int ii=0; ii<=idx_cpu; ii++){
+
+			//the node does not need remote memory
+			if(mem_rem_per_node[ii] <=0)
+				continue;
+			
+			//check which group this node can borrow memory
+			//if the node is in the first half it should borrow memory from the group on the other half.
+			int direction = (node_id[ii]>=size/2) ? -(size/2) : (size/2);
+			if(param_alloc_group == size) 
+				direction = 0; 
+			int min_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii] : node_id[ii]-(node_id[ii]%param_alloc_group);
+			int max_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii]+param_alloc_group-1 : node_id[ii]+(param_alloc_group-node_id[ii]%param_alloc_group)-1;
+
+			info("SDDEBUG: %s size %lu group %d node_id[%d] %d direction %d, min_idx %d max_idx %d mem_rem_per_node[%d] %d",
+						__func__,size,param_alloc_group,ii,node_id[ii],direction,min_idx,max_idx,ii,mem_rem_per_node[ii]);
+
+			for (i = (min_idx+direction); i <= (max_idx+direction); i++) {
+				if (!bit_test(map_copy, i))
+					continue;
+				
+				if(mem_rem_per_node[ii] <=0)
+					break;
+
+				//find the id for the remote mem in memory_allocated array
+				for(idx_mem=0;node_remote_mem[idx_mem]!=i;idx_mem++);
+			
+				avail = select_node_record[i].real_memory -
+								node_usage[i].alloc_memory;		
+				
+				if(mem_rem_per_node[ii] > avail){
+					mem_rem_per_node[ii] -= avail;
+					job_res->memory_allocated[idx_mem] = avail;
+					rem -= avail;
+				}
+				else{
+					rem -= mem_rem_per_node[ii];
+					job_res->memory_allocated[idx_mem] = mem_rem_per_node[ii];
+					mem_rem_per_node[ii] = 0;
+				}
+				//cleaning used mem_node. so each cpu node will have only one corresponding mem_node			
+				bit_clear(map_copy,i);
+				
+				info("SDDEBUG: %s job_id %u node %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,idx_mem,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,ii,mem_rem_per_node[ii]);
+			}
+
+		}	
+	}
 	
 	if(rem){
-		info("SDDEBUG: %s ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+		info("SDDEBUG: %s filling_jobresource_error - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 			__func__,job_ptr->job_id,rem);
+		free_job_resources(&job_ptr->job_resrcs);
+		error_code = SLURM_ERROR;
 	}
+
+	xfree(mem_rem_per_node);
+	xfree(node_id);
+	xfree(node_remote_mem);
+	FREE_NULL_BITMAP(map_copy);
 
 	return error_code;
 }
