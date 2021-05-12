@@ -3068,7 +3068,7 @@ static int _eval_memory(struct job_record *job_ptr,
 	uint64_t tot_req_mem = 0, req_mem = 0, tot_alloc_mem = 0, per_node = 0;
 	uint64_t free_mem, remaining = 0;
 	int *mem_rem_per_node, *node_id;
-	int i_first, i_last, idx = 0;
+	int i_first, i_last, idx = -1, start_idx;
 	char *node_name,*mem_node_name;
 	bitstr_t *orig_map;
 
@@ -3135,11 +3135,11 @@ static int _eval_memory(struct job_record *job_ptr,
 		// Correctly calculate the requested memory per node
 		per_node = (job_ptr->details->pn_min_memory & MEM_PER_CPU) ? select_node_record[i].cpus * req_mem : req_mem;
 
+		idx++;
 		mem_rem_per_node[idx] = per_node - free_mem; // think req_mem as per_cpu rewrite to per_node as well
 		node_id[idx] = i;
 		debug5("SDDEBUG: %s for job_id %u node %s free_mem %lu per_node %lu  mem_rem_per_node[%d] %d",
              __func__,job_ptr->job_id,select_node_record[i].node_ptr->name,free_mem,per_node,idx, mem_rem_per_node[idx]);
-		idx++;
 
 		tot_alloc_mem += MIN(free_mem, per_node);
 		//For localnoself free_mem should be at least 40% of mem capacity, however
@@ -3154,34 +3154,30 @@ static int _eval_memory(struct job_record *job_ptr,
 
 	/* FVZ: Iterate over memory_pool to increase memory */
 	if(tot_alloc_mem < tot_req_mem){
-		//idx = 0;
+
 		mem_nodes = bit_set_count(memory_pool_map);
-		/*i_first = bit_ffs(orig_map);
-		if (i_first == -1)
-			i_last = -2;
-		else
-			i_last  = bit_fls(orig_map);
-		*/
 		int64_t size = bit_size(node_map); // total number of nodes
-		//int group = 2;
-		//here ii is < idx because it starts with 0 and finishes one index ahead of the last record
-		for(int ii=0; ii<idx; ii++){
+		int group_factor = size/param_alloc_group;
+
+		//here ii is <= idx because it starts with -1 and finishes on the last record
+		for(int ii=0; ii<=idx; ii++){
 			//the node does not need remote memory
 			if(mem_rem_per_node[ii] <=0)
 				continue;
+
+			i_first = bit_ffs(orig_map);
+			if (i_first == -1)
+				i_last = -2;
+			else
+				i_last  = bit_fls(orig_map);
 			
 			//check which group this node can borrow memory
-			//if the node is in the first half it should borrow memory from the group on the other half.
-			int direction = (node_id[ii]>=size/2) ? -(size/2) : (size/2);
-			if(param_alloc_group == size) 
-				direction = 0;
-			int min_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii] : node_id[ii]-(node_id[ii]%param_alloc_group);
-			int max_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii]+param_alloc_group-1 : node_id[ii]+(param_alloc_group-node_id[ii]%param_alloc_group)-1;
+			for(start_idx=node_id[ii]; start_idx>=group_factor; start_idx-=group_factor); 
 
-			debug5("SDDEBUG: %s size %lu group %d node_id[%d] %d direction %d, min_idx %d max_idx %d mem_rem_per_node[%d] %d",
-						__func__,size,param_alloc_group,ii,node_id[ii],direction,min_idx,max_idx,ii,mem_rem_per_node[ii]);
+			debug5("SDDEBUG: %s size %lu group %d node_id[%d] %d start_idx %d mem_rem_per_node[%d] %d",
+						__func__,size,param_alloc_group,ii,node_id[ii],start_idx,ii,mem_rem_per_node[ii]);
 
-			for (i = (min_idx+direction); i <= (max_idx+direction); i++) {
+			for (i = start_idx; i <= i_last; i+=group_factor) {
 				if (!bit_test(orig_map, i))
 					continue;
 				
@@ -4438,7 +4434,8 @@ alloc_job:
 
 			job_res->memory_allocated[idx_mem] = allocated;
 			mem_rem_per_node[idx_cpu] = allocated - avail;
-			node_id[idx_cpu] = i;		 
+			node_id[idx_cpu] = i;
+			bit_clear(map_copy,i); // cleaning the cpu node from the mem pool		 
 			if(allocated >= avail){
 				job_res->memory_allocated[idx_mem] = avail;
 				rem -=  avail;
@@ -4484,7 +4481,8 @@ alloc_job:
 
 			job_res->memory_allocated[idx_mem] = save_mem;	
 			mem_rem_per_node[idx_cpu] = save_mem - avail;
-			node_id[idx_cpu] = i;		 
+			node_id[idx_cpu] = i;	
+			bit_clear(map_copy,i); // cleaning the cpu node from the mem pool	 
 			if(save_mem >= avail){
 				job_res->memory_allocated[idx_mem] = avail;	
 				rem -=  avail;
@@ -4555,6 +4553,8 @@ alloc_job:
 	*/
 	if(rem){
 		int64_t size = bit_size(job_res->node_bitmap); // total number of nodes
+		int group_factor = size/param_alloc_group;
+		int start_idx = 0;
 		//here ii is <=idx_cpu because idx_cpu starts with -1 and finishes on the last index
 		for(int ii=0; ii<=idx_cpu; ii++){
 
@@ -4562,18 +4562,19 @@ alloc_job:
 			if(mem_rem_per_node[ii] <=0)
 				continue;
 			
+			first = bit_ffs(map_copy);
+			if (first == -1)
+				last = -2;
+			else
+				last  = bit_fls(map_copy);
+
 			//check which group this node can borrow memory
-			//if the node is in the first half it should borrow memory from the group on the other half.
-			int direction = (node_id[ii]>=size/2) ? -(size/2) : (size/2);
-			if(param_alloc_group == size) 
-				direction = 0; 
-			int min_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii] : node_id[ii]-(node_id[ii]%param_alloc_group);
-			int max_idx = (node_id[ii]%param_alloc_group == 0) ? node_id[ii]+param_alloc_group-1 : node_id[ii]+(param_alloc_group-node_id[ii]%param_alloc_group)-1;
+			for(start_idx=node_id[ii]; start_idx>=group_factor; start_idx-=group_factor); 
 
-			info("SDDEBUG: %s size %lu group %d node_id[%d] %d direction %d, min_idx %d max_idx %d mem_rem_per_node[%d] %d",
-						__func__,size,param_alloc_group,ii,node_id[ii],direction,min_idx,max_idx,ii,mem_rem_per_node[ii]);
+			info("SDDEBUG: %s size %lu group %d node_id[%d] %d start_idx %d mem_rem_per_node[%d] %d",
+						__func__,size,param_alloc_group,ii,node_id[ii],start_idx,ii,mem_rem_per_node[ii]);
 
-			for (i = (min_idx+direction); i <= (max_idx+direction); i++) {
+			for (i = start_idx; i <= last; i+=group_factor) {
 				if (!bit_test(map_copy, i))
 					continue;
 				
