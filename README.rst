@@ -1,3 +1,10 @@
+Slurm Simulator
+--------------------------------------------------------
+
+This repository is based on the Slurm simulator's code improved at Barcelona Supercomputing Center by Ana Jokanovic and Marco D'Amico. The reference paper on the simulator's validation is "Evaluating SLURM simulator with real-machine SLURM and vice versa" published at PMBS18 (https://ieeexplore.ieee.org/document/8641556). 
+
+To install please follow the README inside the repo: https://github.com/felippezacarias/slurm_simulator_scripts.git (disaggregated branch)
+
 Slurm Workload Manager
 --------------------------------------------------------
 
