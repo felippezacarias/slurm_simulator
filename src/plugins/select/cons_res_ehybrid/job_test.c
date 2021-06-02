@@ -4490,9 +4490,13 @@ alloc_job:
 	}
 	
 	if(rem){
-		info("SDDEBUG: %s ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+		info("SDDEBUG: %s filling_jobresource_error - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 			__func__,job_ptr->job_id,rem);
+		free_job_resources(&job_ptr->job_resrcs);
+		error_code = SLURM_ERROR;
 	}
+
+	xfree(mem_rem_per_node)
 
 	return error_code;
 }
