@@ -1479,6 +1479,7 @@ static int _eval_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 		else
 			required_node = false;
 		if (bit_test(node_map, i)) {
+			node_ptr = node_record_table_ptr + i;
 
 			if (!details_ptr->contiguous &&
 					(consec_weight[consec_index] != NO_VAL64) && /* Init value*/
@@ -1494,7 +1495,6 @@ static int _eval_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 					}
 			}
 
-			node_ptr = node_record_table_ptr + i;
 			if (consec_nodes[consec_index] == 0)
 				consec_start[consec_index] = i;
 			avail_cpus = cpu_cnt[i];
@@ -4497,7 +4497,7 @@ alloc_job:
 		error_code = SLURM_ERROR;
 	}
 
-	xfree(mem_rem_per_node)
+	xfree(mem_rem_per_node);
 
 	return error_code;
 }

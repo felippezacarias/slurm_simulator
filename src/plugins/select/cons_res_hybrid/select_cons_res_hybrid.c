@@ -1300,6 +1300,7 @@ static int _rm_job_from_res(struct part_res_record *part_record_ptr,
 		if (action != 2) {
 			debug5("SDDEBUG: %s Deallocating job resources of job_id %u memory_node %d idx %d memory_allocated %lu",
 					__func__,job_ptr->job_id,i,idx,job->memory_allocated[idx]);
+			node_ptr = node_record_table_ptr + i;
 			if (node_usage[i].alloc_memory <
 			    job->memory_allocated[idx]) {
 				error("cons_res: node %s memory is "
