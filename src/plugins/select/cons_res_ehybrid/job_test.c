@@ -1251,6 +1251,7 @@ static void _get_mem_usage(bitstr_t *memory_pool_map, bitstr_t *local_mem_map, u
 			   struct node_use_record *node_usage, bool test_only)
 {
 	uint64_t avail_mem;
+	double limit = (perc_free_mem/100.0);
 
 	for (int node_i = 0; node_i < cr_node_cnt; node_i++) {
 		if (!bit_test(memory_pool_map, node_i))
@@ -1260,7 +1261,7 @@ static void _get_mem_usage(bitstr_t *memory_pool_map, bitstr_t *local_mem_map, u
 		if(!test_only)
 			avail_mem -= node_usage[node_i].alloc_memory;
 		/* FVZ: if the node does not have memory we clear its core bits */
-		if((avail_mem/select_node_record[node_i].real_memory) < 0.4){
+		if(((double)avail_mem/(double)select_node_record[node_i].real_memory) < limit){
 			bit_clear(local_mem_map,node_i);	
 		}
 		if(avail_mem == 0){

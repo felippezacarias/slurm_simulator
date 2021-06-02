@@ -186,6 +186,7 @@ uint64_t select_debug_flags   = 0;
 uint16_t select_fast_schedule = 0;
 bool     spec_cores_first     = false;
 bool     topo_optional        = false;
+int		 perc_free_mem		  = 100;
 
 struct part_res_record *select_part_record = NULL;
 struct node_res_record *select_node_record = NULL;
@@ -2249,7 +2250,7 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 			      preempt_reorder_cnt);
 		}
 	}
-        if ((tmp_ptr = xstrcasestr(sched_params, "bf_window_linear="))) {
+    if ((tmp_ptr = xstrcasestr(sched_params, "bf_window_linear="))) {
 		bf_window_scale = atoi(tmp_ptr + 17);
 		if (bf_window_scale <= 0) {
 			fatal("Invalid SchedulerParameters bf_window_linear: %d",
@@ -2257,6 +2258,15 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 		}
 	} else
 		bf_window_scale = 0;
+
+	if ((tmp_ptr = xstrcasestr(sched_params, "perc_free_mem="))) {
+		perc_free_mem = atoi(tmp_ptr + 14);
+		if ((perc_free_mem <= 0) || (perc_free_mem > 100)) {
+			fatal("Invalid SchedulerParameters perc_free_mem: %d",
+					perc_free_mem);
+		}
+	} else
+		perc_free_mem = 100;
 
 	if (xstrcasestr(sched_params, "pack_serial_at_end"))
 		pack_serial_at_end = true;
