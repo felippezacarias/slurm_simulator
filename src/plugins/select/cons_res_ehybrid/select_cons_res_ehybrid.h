@@ -114,6 +114,7 @@ extern uint16_t select_fast_schedule;
 extern bool     spec_cores_first;
 extern bool     topo_optional;
 extern int		perc_free_mem;
+extern double	mem_overprovisioning;
 
 extern struct part_res_record *select_part_record;
 extern struct node_res_record *select_node_record;

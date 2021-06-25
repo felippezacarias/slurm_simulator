@@ -187,6 +187,7 @@ uint16_t select_fast_schedule = 0;
 bool     spec_cores_first     = false;
 bool     topo_optional        = false;
 int		 perc_free_mem		  = 100;
+double		 mem_overprovisioning = 0;
 
 struct part_res_record *select_part_record = NULL;
 struct node_res_record *select_node_record = NULL;
@@ -2269,6 +2270,15 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 	} else
 		perc_free_mem = 100;
 
+	if ((tmp_ptr = xstrcasestr(sched_params, "mem_overprovisioning="))) {
+		mem_overprovisioning = atof(tmp_ptr + 21);
+		if (mem_overprovisioning < 0) {
+			fatal("Invalid SchedulerParameters mem_overprovisioning: %d",
+					mem_overprovisioning);
+		}
+	} else
+		mem_overprovisioning = 0;
+
 	if (xstrcasestr(sched_params, "pack_serial_at_end"))
 		pack_serial_at_end = true;
 	else
@@ -2624,6 +2634,9 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
 
 	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
+
+	// For our overprovisioning tests, I consider only the real memory and the whole local memory.
+	if(remote_ratio < 0) remote_ratio = 0;
 
 	return (remote_ratio);
 }

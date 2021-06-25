@@ -701,6 +701,7 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 		 *          - there are enough free_cores (MEM_PER_CPU == 1)
 		 */
 		req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
+		req_mem += (req_mem*(mem_overprovisioning/100.0));
 		avail_mem = select_node_record[node_i].real_memory -
 			    select_node_record[node_i].mem_spec_limit;
 		if (!test_only)
@@ -3077,6 +3078,7 @@ static int _eval_memory(struct job_record *job_ptr,
 	
 
 	req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
+	req_mem += (req_mem*(mem_overprovisioning/100.0));
 	nodes 	  = bit_set_count(node_map);
 	mem_nodes = bit_set_count(memory_pool_map);
 
@@ -4328,6 +4330,7 @@ alloc_job:
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
 		save_mem = (save_mem &= (~MEM_PER_CPU));
+		save_mem += (save_mem*(mem_overprovisioning/100.0));
 
 		/* FVZ: same calculation on _eval_memory() */
 		if(job_ptr->details->num_tasks > 1){
@@ -4397,6 +4400,7 @@ alloc_job:
 	} 
 	else if(save_mem){ /* memory is per-node */
 
+		save_mem += (save_mem*(mem_overprovisioning/100.0));
 		rem = job_res->nhosts * save_mem;
 
 		first = bit_ffs(job_res->memory_pool_bitmap);
