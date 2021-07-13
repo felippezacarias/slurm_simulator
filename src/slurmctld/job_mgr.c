@@ -628,6 +628,30 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->time_delta = 0;
 	job_ptr->sim_executable = 0;
 	job_ptr->job_share = list_create(NULL);
+	job_ptr->mem_ov = 0.0;
+
+	/*FVZ simulator mem overprovisioning test */
+	char *tmp_ptr;
+	int seed;
+	double r = 0;
+	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "mem_ov_seed="))) {
+		seed = atof(tmp_ptr + 12);
+		if (seed < 0) {
+			fatal("Invalid SchedulerParameters mem_ove_seed: %d",
+					seed);
+		}
+	} else
+		seed = 0.0;
+	if(seed != 0){	
+		if(job_id_sequence == 1)
+			srand(seed);
+		r = rand() % 101;
+	}
+
+	job_ptr->mem_ov = r;
+
+	debug5("%s job_id_sequence %u sched_params %s rand %f",
+			__func__,job_id_sequence,slurmctld_conf.sched_params,r);
 
 	(void) list_append(job_list, job_ptr);
 

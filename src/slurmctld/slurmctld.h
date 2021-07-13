@@ -896,6 +896,7 @@ struct job_record {
     double time_left;	/* */
 	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
+	double mem_ov; 		/* FVZ: percentage of memory overprovisioned */
     List job_share;      /*Nishtala: list of jobs running in the same node*/
 };
 

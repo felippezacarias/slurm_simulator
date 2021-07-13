@@ -2270,14 +2270,14 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 	} else
 		perc_free_mem = 100;
 
-	if ((tmp_ptr = xstrcasestr(sched_params, "mem_overprovisioning="))) {
-		mem_overprovisioning = atof(tmp_ptr + 21);
-		if (mem_overprovisioning < 0) {
-			fatal("Invalid SchedulerParameters mem_overprovisioning: %d",
-					mem_overprovisioning);
-		}
-	} else
-		mem_overprovisioning = 0;
+	//if ((tmp_ptr = xstrcasestr(sched_params, "mem_overprovisioning="))) {
+	//	mem_overprovisioning = atof(tmp_ptr + 21);
+	//	if (mem_overprovisioning < 0) {
+	//		fatal("Invalid SchedulerParameters mem_overprovisioning: %d",
+	//				mem_overprovisioning);
+	//	}
+	//} else
+	//	mem_overprovisioning = 0;
 
 	if (xstrcasestr(sched_params, "pack_serial_at_end"))
 		pack_serial_at_end = true;
