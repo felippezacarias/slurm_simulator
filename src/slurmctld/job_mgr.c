@@ -631,27 +631,32 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->mem_ov = 0.0;
 
 	/*FVZ simulator mem overprovisioning test */
+	bool is_rand = true;
 	char *tmp_ptr;
-	int seed;
-	double r = 0;
+	double seed;
+	//0.1 = 10% constant for all jobs
+	//0   = no overestimation
+	//>0  = seed random % for every job
 	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "mem_ov_seed="))) {
 		seed = atof(tmp_ptr + 12);
-		if (seed < 0) {
-			fatal("Invalid SchedulerParameters mem_ove_seed: %d",
-					seed);
+		if (seed < 1) {
+			seed = seed*100;
+			is_rand = false;
+			debug("SchedulerParameters mem_ov_seed constant: %d",seed);
 		}
 	} else
 		seed = 0.0;
-	if(seed != 0){	
+
+	job_ptr->mem_ov = seed; 
+
+	if(is_rand && (seed != 0)){	
 		if(job_id_sequence == 1)
 			srand(seed);
-		r = rand() % 101;
+		job_ptr->mem_ov = rand() % 101;
 	}
 
-	job_ptr->mem_ov = r;
-
-	debug5("%s job_id_sequence %u sched_params %s rand %f",
-			__func__,job_id_sequence,slurmctld_conf.sched_params,r);
+	info("%s job_id_sequence %u rand %f is_rand %d seed %f",
+			__func__,job_id_sequence,job_ptr->mem_ov,is_rand,seed);
 
 	(void) list_append(job_list, job_ptr);
 
@@ -11083,8 +11088,10 @@ void reset_job_bitmaps(void)
 			job_fail = true;
 		}
 		/* FVZ:Cleaning up memory pool bitmap */
-		if(job_ptr->job_resrcs)
+		if(job_ptr->job_resrcs){
 			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+			FREE_NULL_BITMAP(job_ptr->job_resrcs->true_memory_pool_bitmap);
+		}
 		FREE_NULL_BITMAP(job_ptr->node_bitmap);
 		if (job_ptr->nodes &&
 		    node_name2bitmap(job_ptr->nodes, false,
@@ -15316,8 +15323,10 @@ void batch_requeue_fini(struct job_record  *job_ptr)
 	FREE_NULL_BITMAP(job_ptr->node_bitmap);
 	FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
 	/* FVZ:Cleaning up memory pool bitmap */
-	if(job_ptr->job_resrcs)
+	if(job_ptr->job_resrcs){
 		FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+		FREE_NULL_BITMAP(job_ptr->job_resrcs->true_memory_pool_bitmap);
+	}
 	if (job_ptr->details) {
 		time_t now = time(NULL);
 		/* The time stamp on the new batch launch credential must be
@@ -18731,8 +18740,8 @@ double _compute_scale(struct job_record *job_ptr){
 				job_tmp = find_job_record(jobid);
 				if(jobid == job_ptr->job_id) self_interf = 1;
 				interf_apps_index[idx]=job_tmp->sim_executable;
-				interf_apps_nodes[idx]=bit_set_count(job_tmp->node_bitmap);
-				//interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
+				//interf_apps_nodes[idx]=bit_set_count(job_tmp->node_bitmap);
+				interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
 				info("SDDEBUG: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
 						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
 				idx++;
@@ -18805,8 +18814,8 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 	//if don't ask for exclusive node and is running
 	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
 
-		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
+		bool mnodes = (bit_overlap(job_ptr->job_resrcs->true_memory_pool_bitmap,
+						job_scan_ptr->job_resrcs->true_memory_pool_bitmap) > 0);
 
 		nodes = bit_set_count(job_ptr->node_bitmap);
 
@@ -18816,6 +18825,7 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		   (job_ptr->job_id != job_scan_ptr->job_id))
 				is_sharing = true;
 		
+		// does not affect our overestimation test
 		if((job_ptr->job_id == job_scan_ptr->job_id) &&
 			(plugin_id < SELECT_PLUGIN_CONS_RES_LOCALNOSELF)){
 			if((bit_equal(job_ptr->node_bitmap,
@@ -18857,8 +18867,8 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 }
 
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf){
-	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-					job_interf->job_resrcs->memory_pool_bitmap));
+	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->true_memory_pool_bitmap,
+					job_interf->job_resrcs->true_memory_pool_bitmap));
 
 	return (mnodes);
 }

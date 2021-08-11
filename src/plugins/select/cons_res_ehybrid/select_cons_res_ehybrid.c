@@ -2270,15 +2270,6 @@ extern int select_p_node_init(struct node_record *node_ptr, int node_cnt)
 	} else
 		perc_free_mem = 100;
 
-	//if ((tmp_ptr = xstrcasestr(sched_params, "mem_overprovisioning="))) {
-	//	mem_overprovisioning = atof(tmp_ptr + 21);
-	//	if (mem_overprovisioning < 0) {
-	//		fatal("Invalid SchedulerParameters mem_overprovisioning: %d",
-	//				mem_overprovisioning);
-	//	}
-	//} else
-	//	mem_overprovisioning = 0;
-
 	if (xstrcasestr(sched_params, "pack_serial_at_end"))
 		pack_serial_at_end = true;
 	else
@@ -2593,6 +2584,7 @@ extern int select_p_job_resume(struct job_record *job_ptr, bool indf_susp)
 
 extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 {
+	//we do not overestimate memory here. We assume it will allocate locally first
 	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
 	uint64_t min_cpus, memory, mem_tot, local = 0;
 	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);

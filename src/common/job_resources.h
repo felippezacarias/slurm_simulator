@@ -119,6 +119,7 @@ struct job_resources {
 	uint32_t  memory_nhosts;
 	char 	 *memory_nodes;
 	bitstr_t *memory_pool_bitmap;
+	bitstr_t *true_memory_pool_bitmap;
 	uint64_t *memory_used;
 	uint32_t  nhosts;
 	bitstr_t *node_bitmap;
