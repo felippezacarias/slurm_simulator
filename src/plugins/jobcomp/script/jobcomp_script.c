@@ -192,7 +192,6 @@ struct jobcomp_info {
 	uint8_t share_res;	
 	uint16_t cpus_per_task;
 	uint32_t hardlimit;
-	double mem_ov;
 };
 
 static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
@@ -286,7 +285,6 @@ static struct jobcomp_info * _jobcomp_info_create (struct job_record *job)
 		j->min_cpus = details->min_cpus;
 		j->min_nodes = details->min_nodes;
 		j->pn_min_memory = details->pn_min_memory;
-		j->mem_ov = job->mem_ov;
 		j->cpus_per_task = details->cpus_per_task;
 		j->share_res = details->share_res;
 	}
@@ -496,12 +494,10 @@ static char ** _create_environment (struct jobcomp_info *job)
 	_env_append_fmt (&env, "REQCPUPERTASK","%u", job->cpus_per_task);
 	if(job->pn_min_memory & MEM_PER_CPU){
 		uint64_t reqmem = (job->pn_min_memory & (~MEM_PER_CPU));
-		reqmem += (reqmem*(job->mem_ov/100.0));
 		_env_append_fmt (&env, "MEMORYPERCPU","%lu", reqmem);
 	}
 	else{
 		uint64_t reqmem = (job->pn_min_memory);
-		reqmem += (reqmem*(job->mem_ov/100.0));
 		_env_append_fmt (&env, "MEMORYPERNODE","%lu", reqmem);
 	}
 

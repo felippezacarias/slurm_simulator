@@ -628,35 +628,35 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->time_delta = 0;
 	job_ptr->sim_executable = 0;
 	job_ptr->job_share = list_create(NULL);
-	job_ptr->mem_ov = 0.0;
+	job_ptr->ori_cpu = 0.0;
 
-	/*FVZ simulator mem overprovisioning test */
+	/*FVZ simulator overprovisioning test */
 	bool is_rand = true;
 	char *tmp_ptr;
 	double seed;
 	//0.1 = 10% constant for all jobs
 	//0   = no overestimation
 	//>0  = seed random % for every job
-	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "mem_ov_seed="))) {
-		seed = atof(tmp_ptr + 12);
+	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "ov_seed="))) {
+		seed = atof(tmp_ptr + 8);
 		if (seed < 1) {
 			seed = seed*100;
 			is_rand = false;
-			debug("SchedulerParameters mem_ov_seed constant: %d",seed);
+			debug("SchedulerParameters ov_seed constant: %d",seed);
 		}
 	} else
 		seed = 0.0;
 
-	job_ptr->mem_ov = seed; 
+	job_ptr->ori_cpu = seed; 
 
 	if(is_rand && (seed != 0)){	
 		if(job_id_sequence == 1)
 			srand(seed);
-		job_ptr->mem_ov = rand() % 101;
+		job_ptr->ori_cpu = rand() % 101;
 	}
 
 	info("%s job_id_sequence %u rand %f is_rand %d seed %f",
-			__func__,job_id_sequence,job_ptr->mem_ov,is_rand,seed);
+			__func__,job_id_sequence,job_ptr->ori_cpu,is_rand,seed);
 
 	(void) list_append(job_list, job_ptr);
 
@@ -8223,6 +8223,20 @@ _copy_job_desc_to_job_record(job_desc_msg_t * job_desc,
 	detail_ptr->x11_magic_cookie = xstrdup(job_desc->x11_magic_cookie);
 	detail_ptr->x11_target = xstrdup(job_desc->x11_target);
 	detail_ptr->x11_target_port = job_desc->x11_target_port;
+
+	uint32_t prev = detail_ptr->min_cpus;
+	detail_ptr->min_cpus += ceil((double)detail_ptr->min_cpus*(job_ptr->ori_cpu/100.0));
+	//Unfortunately the 32 will be hardcoded for our tests
+    if((job_ptr->ori_cpu > 0) && (detail_ptr->min_cpus%32 != 0))
+		detail_ptr->min_cpus=detail_ptr->min_cpus+32-(detail_ptr->min_cpus%32);
+	detail_ptr->orig_min_cpus=detail_ptr->min_cpus;
+
+	info("%s: job_id %u prev %u min_cpus %u ori_cpu %f",
+			__func__,job_ptr->job_id,prev,detail_ptr->min_cpus,job_ptr->ori_cpu);
+
+	job_ptr->ori_cpu = prev;
+
+
 	if (job_desc->req_nodes) {
 		detail_ptr->req_nodes =
 			_copy_nodelist_no_dup(job_desc->req_nodes);
@@ -18706,7 +18720,7 @@ double _compute_scale(struct job_record *job_ptr){
 	double scale = 1.0, time_delta = 0.0, tmp;
 	double remote_allocation_ratio, local_remote_ratio;
 	double *model_res_local = NULL, *model_res_remote = NULL;
-	uint32_t jobid, jobnodes = 0;
+	uint32_t jobid, jobnodes = 0, target_nodes = 0;
 	time_t now = time(NULL);
 	int target_info[4], idx = 0, self_interf = 0;
 	int *interf_apps_index, *interf_apps_nodes;
@@ -18721,7 +18735,10 @@ double _compute_scale(struct job_record *job_ptr){
 	//estimating  what is the allocation local/remote access
 	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr);
 	//reading application local/remote ratio
-	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
+	//local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
+	//target_nodes = bit_set_count(job_ptr->node_bitmap);
+	target_nodes = job_ptr->ori_cpu/32; // harcoded; removing the overestimated nodes
+	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,target_nodes);
 
 	if(job_cnt){
     	interf_apps_index = (int*) malloc(job_cnt*sizeof(int));
@@ -18730,10 +18747,11 @@ double _compute_scale(struct job_record *job_ptr){
 		job_iterator = list_iterator_create(job_ptr->job_share);
 		//I'm considering only the computing nodes. If the number of interfering nodes
 		//is higher due the memory nodes
-		jobnodes+=bit_set_count(job_ptr->node_bitmap);
+		//jobnodes+=bit_set_count(job_ptr->node_bitmap);
 
 		target_info[0] = job_ptr->sim_executable;
-    	target_info[1] = jobnodes;
+    	//target_info[1] = jobnodes;
+		target_info[1] = target_nodes;
 
 		if(is_multi_curve){
 			while ((jobid = (uint32_t) list_next(job_iterator))) {

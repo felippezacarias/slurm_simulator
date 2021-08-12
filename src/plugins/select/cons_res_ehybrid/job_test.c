@@ -701,7 +701,6 @@ uint16_t _can_job_run_on_node(struct job_record *job_ptr, bitstr_t *core_map,
 		 *          - there are enough free_cores (MEM_PER_CPU == 1)
 		 */
 		req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
-		req_mem += (req_mem*(job_ptr->mem_ov/100.0));
 		avail_mem = select_node_record[node_i].real_memory -
 			    select_node_record[node_i].mem_spec_limit;
 		if (!test_only)
@@ -3078,7 +3077,6 @@ static int _eval_memory(struct job_record *job_ptr,
 	
 
 	req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
-	req_mem += (req_mem*(job_ptr->mem_ov/100.0));
 	nodes 	  = bit_set_count(node_map);
 	mem_nodes = bit_set_count(memory_pool_map);
 
@@ -4315,12 +4313,10 @@ alloc_job:
 	 * for pool nodes, it has to allocate its free_mem */
 	/* load memory allocated array */
 	save_mem = details_ptr->pn_min_memory;
-	u_int64_t save_mem_no_ov = save_mem; 
 	int idx = 0;
 	int idx_mem = -1, idx_cpu = -1;
-	uint64_t avail = 0, rem = 0, rem_no_ov = 0, min_cpus, allocated, allocated_no_ov;
+	uint64_t avail = 0, rem = 0, rem_no_ov = 0, min_cpus, allocated, alloc_cpus = 0;
 	int *mem_rem_per_node=NULL;
-	int *mem_rem_per_node_no_ov=NULL;
 	uint32_t nodes;
 	bool using_nodes = false;
 	bool mem_avail = false;
@@ -4329,16 +4325,12 @@ alloc_job:
 
 	mem_rem_per_node = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
-	mem_rem_per_node_no_ov = xmalloc(nodes * sizeof(int));
-	memset(mem_rem_per_node_no_ov,0,nodes);
 
-	job_res->true_memory_pool_bitmap = bit_copy(job_res->memory_pool_bitmap);
+	job_res->true_memory_pool_bitmap = bit_copy(job_res->node_bitmap);
 	bit_clear_all(job_res->true_memory_pool_bitmap);
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
 		save_mem = (save_mem &= (~MEM_PER_CPU));
-		save_mem_no_ov = (save_mem_no_ov &= (~MEM_PER_CPU));
-		save_mem += (save_mem*(job_ptr->mem_ov/100.0)); // overestimating mem
 
 		/* FVZ: same calculation on _eval_memory() */
 		if(job_ptr->details->num_tasks > 1){
@@ -4346,7 +4338,6 @@ alloc_job:
 			if(job_ptr->details->ntasks_per_node) {
 				min_cpus = nodes;
 				save_mem*=job_ptr->details->ntasks_per_node;
-				save_mem_no_ov*=job_ptr->details->ntasks_per_node;
 			}
 			info("SDDEBUG: %s Filling in job resources of job_id %u mem_per_cpu requested and using tasks %u to calculate memory requirement.",__func__,job_ptr->job_id,min_cpus);
 		}
@@ -4358,7 +4349,6 @@ alloc_job:
 		if(nodes == min_cpus) using_nodes = true;
 
 		rem = (min_cpus * save_mem);
-		rem_no_ov = (min_cpus * save_mem_no_ov);
 		
 		first = bit_ffs(job_res->memory_pool_bitmap);
 		if (first != -1)
@@ -4383,21 +4373,21 @@ alloc_job:
 			
 			allocated = save_mem*job_res->cpus[idx_cpu]; //specified cpu
 			
-			allocated_no_ov = save_mem_no_ov*job_res->cpus[idx_cpu];
+			if(alloc_cpus < job_ptr->ori_cpu){
+				alloc_cpus+=job_res->cpus[idx_cpu];
+				bit_set(job_res->true_memory_pool_bitmap,i);
+			}
 
 			if(nodes == 1){
 				allocated = save_mem*min_cpus; //specified num_task and all tasks are allocated 1 node
-				allocated_no_ov = save_mem_no_ov*min_cpus;
 			}
 
 			if(using_nodes){
 				allocated = save_mem; //specified min_nodes so we treate as mem per node
-				allocated_no_ov = save_mem_no_ov;
 			}
 
 			job_res->memory_allocated[idx_mem] = allocated;
 			mem_rem_per_node[idx_cpu] = allocated - avail;
-			mem_rem_per_node_no_ov[idx_cpu] = allocated_no_ov - avail;
 
 			if(allocated >= avail){
 				job_res->memory_allocated[idx_mem] = avail;
@@ -4410,21 +4400,6 @@ alloc_job:
 				else
 					rem -= (allocated);	
 			}
-
-			// overestimation check
-			if(rem_no_ov != 0){
-				bit_set(job_res->true_memory_pool_bitmap,i);
-
-				if(allocated_no_ov >= avail){
-					rem_no_ov -=  avail;
-				}else{
-					if(rem_no_ov <= allocated_no_ov){
-						rem_no_ov = 0;
-					}
-					else
-						rem_no_ov -= (allocated_no_ov);	
-				}
-			}
 						
 			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u mem_rem_per_node[%d] %d",
 					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx_cpu],idx_cpu,mem_rem_per_node[idx_cpu]);
@@ -4433,10 +4408,7 @@ alloc_job:
 	} 
 	else if(save_mem){ /* memory is per-node */
 
-		save_mem_no_ov = save_mem;
-		save_mem += (save_mem*(job_ptr->mem_ov/100.0));
 		rem = job_res->nhosts * save_mem;
-		rem_no_ov = job_res->nhosts * save_mem_no_ov;
 
 		first = bit_ffs(job_res->memory_pool_bitmap);
 		if (first != -1)
@@ -4461,7 +4433,11 @@ alloc_job:
 
 			job_res->memory_allocated[idx_mem] = save_mem;	
 			mem_rem_per_node[idx_cpu] = save_mem - avail;
-			mem_rem_per_node_no_ov[idx_cpu] = save_mem_no_ov - avail;		 
+
+			if(alloc_cpus < job_ptr->ori_cpu){
+				alloc_cpus+=job_res->cpus[idx_cpu];
+				bit_set(job_res->true_memory_pool_bitmap,i);
+			} 
 
 			if(save_mem >= avail){
 				job_res->memory_allocated[idx_mem] = avail;	
@@ -4475,20 +4451,6 @@ alloc_job:
 					rem -= (save_mem);	
 			}
 
-			// overestimation check
-			if(rem_no_ov != 0){
-				bit_set(job_res->true_memory_pool_bitmap,i);
-				if(save_mem_no_ov >= avail){
-					rem_no_ov -=  avail;
-				}else{
-					if(rem_no_ov <= save_mem_no_ov){
-						rem_no_ov = 0;
-					}
-					else
-						rem_no_ov -= (save_mem_no_ov);	
-				}
-			}
-
 			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
 					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem);
 		}
@@ -4498,8 +4460,12 @@ alloc_job:
 
 	// Using memory_nodes != cpu_nodes
 	if(rem){
+		int ori_mem_node = 0;
 		idx_mem = -1;
 		idx_cpu = 0;
+
+		ori_mem_node = bit_set_count(job_res->true_memory_pool_bitmap);
+
 		first = bit_ffs(job_res->memory_pool_bitmap);
 		if (first != -1)
 			last  = bit_fls(job_res->memory_pool_bitmap);
@@ -4515,15 +4481,18 @@ alloc_job:
 			if (bit_test(job_res->node_bitmap, i))
 				continue;
 
-			//if(mem_rem_per_node[idx_cpu] <= 0)
-			//	idx_cpu++;
-			
 			//FVZ: Might happen some nodes don't need extra mem. we should skip them
 			while((mem_rem_per_node[idx_cpu] <= 0) && (idx_cpu < nodes))
 				idx_cpu++;
 			
 			if(idx_cpu == nodes)
 				break;
+
+			// Counting the memory nodes of original cpu nodes
+			// since idx_cpu starts = 0, the comparison has to be <
+			if(idx_cpu < ori_mem_node){
+				bit_set(job_res->true_memory_pool_bitmap,i);
+			}
 
 			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
@@ -4552,61 +4521,7 @@ alloc_job:
 		error_code = SLURM_ERROR;
 	}
 
-	// overestimation check
-	if(rem_no_ov){
-		idx_mem = -1;
-		idx_cpu = 0;
-		first = bit_ffs(job_res->memory_pool_bitmap);
-		if (first != -1)
-			last  = bit_fls(job_res->memory_pool_bitmap);
-		else
-			last = first - 1;
-		
-		for (i = first; i <= last; i++) {
-			if (!bit_test(job_res->memory_pool_bitmap, i))
-				continue;
-
-			idx_mem++;
-
-			if (bit_test(job_res->node_bitmap, i))
-				continue;
-	
-			//FVZ: Might happen some nodes don't need extra mem. we should skip them
-			while((mem_rem_per_node_no_ov[idx_cpu] <= 0) && (idx_cpu < nodes))
-				idx_cpu++;
-			
-			if(idx_cpu == nodes)
-				break;
-
-			avail = select_node_record[i].real_memory -
-											node_usage[i].alloc_memory;
-
-
-			bit_set(job_res->true_memory_pool_bitmap,i);
-
-			if(mem_rem_per_node_no_ov[idx_cpu] > avail){
-				mem_rem_per_node_no_ov[idx_cpu] -= avail;
-				rem_no_ov -= avail;
-			}
-			else{
-				rem_no_ov -= mem_rem_per_node_no_ov[idx_cpu];
-				mem_rem_per_node_no_ov[idx_cpu] = 0;
-			}
-
-			info("SDDEBUG: %s job_id %u node %s avail %lu rem_no_ov %lu mem_rem_per_node_no_ov[%d] %d",
-					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,avail,rem_no_ov,idx_cpu,mem_rem_per_node_no_ov[idx_cpu]);
-		}
-	}
-
-	if(rem_no_ov){
-		info("SDDEBUG: %s filling_jobresource_error - something went wrong for job_id %u no_ov_memory left %lu. It SHOULD BE 0!!!",
-			__func__,job_ptr->job_id,rem_no_ov);
-		free_job_resources(&job_ptr->job_resrcs);
-		error_code = SLURM_ERROR;
-	}
-
 	xfree(mem_rem_per_node);
-	xfree(mem_rem_per_node_no_ov);
-
+	
 	return error_code;
 }

@@ -187,7 +187,6 @@ uint16_t select_fast_schedule = 0;
 bool     spec_cores_first     = false;
 bool     topo_optional        = false;
 int		 perc_free_mem		  = 100;
-double		 mem_overprovisioning = 0;
 
 struct part_res_record *select_part_record = NULL;
 struct node_res_record *select_node_record = NULL;
@@ -2588,13 +2587,14 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
 	uint64_t min_cpus, memory, mem_tot, local = 0;
 	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
-	uint16_t cpus;
+	uint16_t cpus, cpus_tot = 0;
 	double remote_ratio;
 	int idx_mem = 0, idx_cpu = 0, i, first, last;
 
 	xassert(job_ptr);
 
-	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+	//min_cpus = MAX(job_ptr->details->min_cpus, nodes);
+	min_cpus = job_ptr->ori_cpu;
 
 	mem_tot = (min_cpus * mem_per_cpu);
 
@@ -2618,7 +2618,11 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 
 		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
 
-		local += MIN(memory,(cpus*mem_per_cpu));
+		//to consider only the original nodes
+		if(cpus_tot < min_cpus)
+			local += MIN(memory,(cpus*mem_per_cpu));
+
+		cpus_tot += cpus;
 		idx_cpu++;
 
 	}
