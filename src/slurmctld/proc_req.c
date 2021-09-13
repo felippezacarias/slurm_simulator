@@ -225,6 +225,7 @@ inline static void  _slurm_rpc_trigger_set(slurm_msg_t * msg);
 inline static void  _slurm_rpc_trigger_pull(slurm_msg_t * msg);
 inline static void  _slurm_rpc_update_front_end(slurm_msg_t * msg);
 inline static void  _slurm_rpc_update_job(slurm_msg_t * msg);
+inline static void  _slurm_rpc_update_resize_sim_job(slurm_msg_t * msg);
 inline static void  _slurm_rpc_update_node(slurm_msg_t * msg);
 inline static void  _slurm_rpc_update_layout(slurm_msg_t * msg);
 inline static void  _slurm_rpc_update_partition(slurm_msg_t * msg);
@@ -463,6 +464,9 @@ void slurmctld_req(slurm_msg_t *msg, connection_arg_t *arg)
 		break;
 	case REQUEST_UPDATE_JOB:
 		_slurm_rpc_update_job(msg);
+		break;
+	case REQUEST_UPDATE_RESIZE_SIM_JOB:
+		_slurm_rpc_update_resize_sim_job(msg);
 		break;
 	case REQUEST_UPDATE_NODE:
 		_slurm_rpc_update_node(msg);
@@ -4547,6 +4551,54 @@ static void _slurm_rpc_update_job(slurm_msg_t * msg)
 		schedule_node_save();
 		queue_job_scheduler();
 	}
+}
+
+/* _slurm_rpc_update_job - process RPC to update the configuration of a
+ * job (e.g. priority)
+ */
+static void _slurm_rpc_update_resize_sim_job(slurm_msg_t * msg)
+{
+	int error_code = SLURM_SUCCESS;
+	DEF_TIMERS;
+	job_desc_msg_t *job_desc_msg = (job_desc_msg_t *) msg->data;
+	/* Locks: Read config, write job, write node, read partition, read fed*/
+	slurmctld_lock_t fed_read_lock = {
+		NO_LOCK, NO_LOCK, NO_LOCK, NO_LOCK, READ_LOCK };
+	slurmctld_lock_t job_write_lock = {
+		READ_LOCK, WRITE_LOCK, WRITE_LOCK, READ_LOCK, READ_LOCK };
+	uid_t uid = g_slurm_auth_get_uid(msg->auth_cred);
+
+	lock_slurmctld(fed_read_lock);
+	if (!_route_msg_to_origin(msg, job_desc_msg->job_id_str,
+				  job_desc_msg->job_id, uid)) {
+		unlock_slurmctld(fed_read_lock);
+		return;
+	}
+	unlock_slurmctld(fed_read_lock);
+
+	START_TIMER;
+	debug2("Processing RPC: REQUEST_UPDATE_RESIZE_SIM_JOB from uid=%d", uid);
+	/* job_desc_msg->user_id is set when the uid has been overriden with
+	 * -u <uid> or --uid=<uid>. NO_VAL is default. Verify the request has
+	 * come from an admin */
+	if (job_desc_msg->user_id != NO_VAL) {
+		if (!validate_super_user(uid)) {
+			error_code = ESLURM_USER_ID_MISSING;
+			error("Security violation, REQUEST_UPDATE_RESIZE_SIM_JOB RPC from uid=%d",
+			      uid);
+			/* Send back the error message for this case because
+			 * update_job also sends back an error message */
+			slurm_send_rc_msg(msg, error_code);
+		} else {
+			/* override uid allowed */
+			uid = job_desc_msg->user_id;
+		}
+	}
+
+	dump_job_desc(job_desc_msg);
+
+	slurm_send_rc_msg(msg, error_code);
+
 }
 
 /*

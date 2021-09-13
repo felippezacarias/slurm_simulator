@@ -289,6 +289,36 @@ dumping_shared_mem() {
 	return;
 }
 
+int
+slurm_update_resize_sim_job (job_desc_msg_t * job_msg, job_array_resp_msg_t **resp)
+{
+	int rc = SLURM_SUCCESS;
+	slurm_msg_t req_msg, resp_msg;
+
+	slurm_msg_t_init(&req_msg);
+	req_msg.msg_type	= REQUEST_UPDATE_RESIZE_SIM_JOB;
+	req_msg.data		= job_msg;
+
+tryagain:
+	slurm_msg_t_init(&resp_msg);
+
+	rc = slurm_send_recv_controller_msg(&req_msg, &resp_msg,
+					    working_cluster_rec);
+	switch (resp_msg.msg_type) {
+	case RESPONSE_SLURM_RC:
+		rc = ((return_code_msg_t *) resp_msg.data)->return_code;
+		if (rc)
+			slurm_seterrno(rc);
+		break;
+	default:
+		slurm_seterrno(SLURM_UNEXPECTED_MSG_ERROR);
+	}
+
+	printf("slurm_update_resize_sim_job - job_id %u rc = %d\n",job_msg->job_id,rc);
+
+	return rc;
+}
+
 /* This is the main simulator function */
 static void*
 time_mgr(void *arg) {
@@ -338,8 +368,11 @@ time_mgr(void *arg) {
 #endif
 
 	/* Main simulation manager loop */
-	uint32_t seconds_to_finish=20;
+	uint32_t seconds_to_finish=300;
 	time_t time_end=0;
+	job_desc_msg_t job_msg;
+	job_array_resp_msg_t *resp = NULL;
+	bool once = false;
 
 	while (1) {
 		real_gettimeofday(&t_start, NULL);
@@ -354,6 +387,19 @@ time_mgr(void *arg) {
 			fprintf(stderr, "Wait is over, time to end all processes in the"
 					" simulation\n");
 			terminate_simulation(SIGINT);
+		}
+		if (!once && (t_start.tv_sec-100>100)) {
+			once = true;
+			//freeing job_msg and resp every time
+			fprintf(stderr, "sending resizing msg\n");
+			slurm_init_job_desc_msg (&job_msg);
+			job_msg.job_id = 2;
+			job_msg.pn_min_memory = 1024;
+			slurm_update_resize_sim_job(&job_msg,&resp);
+			slurm_free_job_array_resp(resp);
+			resp = NULL;
+			//controller: handle the msg
+			//update the job
 		}
 
 		/* First going through threads and leaving a chance to execute code */
@@ -772,6 +818,8 @@ int init_job_trace() {
 #endif
 		init_trace_info(&new_job, 0);
 		total_trace_records++;
+		if(total_trace_records == 1)
+			break;
 	}
 	if (ret_val==-1) {
 		printf("Error opening manifest\n");

@@ -983,6 +983,10 @@ pack_msg(slurm_msg_t const *msg, Buf buffer)
 		_pack_job_desc_msg((job_desc_msg_t *) msg->data, buffer,
 				   msg->protocol_version);
 		break;
+	case REQUEST_UPDATE_RESIZE_SIM_JOB:
+		_pack_job_desc_msg((job_desc_msg_t *) msg->data, buffer,
+				   msg->protocol_version);
+		break;
 	case REQUEST_JOB_PACK_ALLOCATION:
 	case REQUEST_SUBMIT_BATCH_JOB_PACK:
 		_pack_job_desc_list_msg((List) msg->data, buffer,
@@ -1692,6 +1696,10 @@ unpack_msg(slurm_msg_t * msg, Buf buffer)
 	case REQUEST_SUBMIT_BATCH_JOB:
 	case REQUEST_JOB_WILL_RUN:
 	case REQUEST_UPDATE_JOB:
+		rc = _unpack_job_desc_msg((job_desc_msg_t **) & (msg->data),
+					  buffer, msg->protocol_version);
+		break;
+	case REQUEST_UPDATE_RESIZE_SIM_JOB:
 		rc = _unpack_job_desc_msg((job_desc_msg_t **) & (msg->data),
 					  buffer, msg->protocol_version);
 		break;

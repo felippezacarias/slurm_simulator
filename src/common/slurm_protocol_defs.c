@@ -4718,6 +4718,9 @@ extern int slurm_free_msg_data(slurm_msg_type_t type, void *data)
 	case REQUEST_UPDATE_JOB:
 		slurm_free_job_desc_msg(data);
 		break;
+	case REQUEST_UPDATE_RESIZE_SIM_JOB:
+		slurm_free_job_desc_msg(data);
+		break;
 	case REQUEST_SIB_JOB_LOCK:
 	case REQUEST_SIB_JOB_UNLOCK:
 	case REQUEST_SIB_MSG:
@@ -5331,6 +5334,8 @@ rpc_num2string(uint16_t opcode)
 
 	case REQUEST_UPDATE_JOB:				/* 3001 */
 		return "REQUEST_UPDATE_JOB";
+	case REQUEST_UPDATE_RESIZE_SIM_JOB:				/* 3001 */
+		return "REQUEST_UPDATE_RESIZE_SIM_JOB";
 	case REQUEST_UPDATE_NODE:
 		return "REQUEST_UPDATE_NODE";
 	case REQUEST_CREATE_PARTITION:
