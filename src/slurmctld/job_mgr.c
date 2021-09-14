@@ -13948,6 +13948,190 @@ extern int update_job(slurm_msg_t *msg, uid_t uid, bool send_msg)
 	return rc;
 }
 
+void _sim_make_node_idle(struct node_record *node_ptr,
+		    struct job_record *job_ptr)
+{
+	int inx = node_ptr - node_record_table_ptr;
+	time_t now = time(NULL);
+	uint32_t node_flags;
+
+	debug5("SDDEBUG: %s job_id %u name %s running_jobs %u state %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state);
+	
+	xassert(node_ptr);
+
+	if (job_ptr->node_cnt)
+		job_ptr->node_cnt--;
+	else
+		error("%s: %pJ node_cnt underflow", __func__, job_ptr);
+	
+	if (IS_JOB_RUNNING(job_ptr)) {
+			/* Remove node from running job */
+			if (node_ptr->run_job_cnt)
+				(node_ptr->run_job_cnt)--;
+			else
+				error("%s: %pJ node %s run_job_cnt underflow",
+				      __func__, job_ptr, node_ptr->name);
+	}
+	
+	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
+
+	if ((IS_NODE_DRAIN(node_ptr) || IS_NODE_FAIL(node_ptr)) &&
+	    (node_ptr->run_job_cnt == 0) && (node_ptr->comp_job_cnt == 0)) {
+		node_ptr->node_state = NODE_STATE_IDLE | node_flags;
+		bit_set(idle_node_bitmap, inx);
+		debug3("%s: %pJ node %s is DRAINED",
+		       __func__, job_ptr, node_ptr->name);
+		node_ptr->last_idle = now;
+		trigger_node_drained(node_ptr);
+		if (!IS_NODE_REBOOT(node_ptr))
+			clusteracct_storage_g_node_down(acct_db_conn,
+							node_ptr, now, NULL,
+							slurmctld_conf.slurm_user_id);
+	} else if (node_ptr->run_job_cnt) {
+		node_ptr->node_state = NODE_STATE_ALLOCATED | node_flags;
+		if (!IS_NODE_NO_RESPOND(node_ptr) &&
+		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
+			make_node_avail(inx);
+	} else {
+		debug5("SDDEBUG: %s job_id %u node %s set to idle",__func__,job_ptr->job_id,node_ptr->name);
+		node_ptr->node_state = NODE_STATE_IDLE | node_flags;
+		if (!IS_NODE_NO_RESPOND(node_ptr) &&
+		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
+			make_node_avail(inx);
+		if (!IS_NODE_NO_RESPOND(node_ptr) &&
+		    !IS_NODE_COMPLETING(node_ptr))
+			bit_set(idle_node_bitmap, inx);
+		node_ptr->last_idle = now;
+	}
+
+	debug5("SDDEBUG: %s job_id %u node %s run_job_cnt %u comp_job_cnt %u state %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->comp_job_cnt,node_ptr->node_state);
+
+	last_node_update = now;
+}
+
+extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
+{
+	job_desc_msg_t *job_specs = (job_desc_msg_t *) msg->data;
+	struct job_record *job_ptr;
+	struct job_details *detail_ptr;
+	struct job_resources *job;
+	struct node_record *node_ptr;
+	bitstr_t *orig_mem_bitmap = NULL;
+	uint64_t orig_pn_min_memory;
+	bool expand = true;
+	time_t now = time(NULL);
+	int rc = SLURM_SUCCESS, first_bit, last_bit, i;
+
+	job_ptr = find_job_record(job_specs->job_id);
+	if (job_ptr == NULL) {
+		info("%s: JobId=%u does not exist",
+		     __func__, job_specs->job_id);
+		rc = ESLURM_INVALID_JOB_ID;
+		return rc;
+	}
+	
+	if (IS_JOB_FINISHED(job_ptr)) {
+		return ESLURM_JOB_FINISHED;
+	}
+
+	if (IS_JOB_PENDING(job_ptr)) {
+		return ESLURM_JOB_PENDING;
+	}
+
+	rc = _test_job_desc_fields(job_specs);
+	if (rc != SLURM_SUCCESS)
+		return rc;
+	
+	detail_ptr = job_ptr->details;
+	job = job_ptr->job_resrcs;
+	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+	orig_pn_min_memory = detail_ptr->pn_min_memory;
+	last_job_update = now;
+
+	if (job_specs->pn_min_memory != NO_VAL64) {
+		debug5("%s values orig_mem %u new_mem %u!",
+				__func__,orig_pn_min_memory,job_specs->pn_min_memory);
+		if (job_specs->pn_min_memory
+			   == detail_ptr->pn_min_memory) {
+			sched_debug("%s: new memory limit identical to old limit for %pJ",
+				    __func__, job_ptr);
+		} else {
+			char *entity;
+			if (job_specs->pn_min_memory == MEM_PER_CPU) {
+				/* Map --mem-per-cpu=0 to --mem=0 */
+				job_specs->pn_min_memory = 0;
+			}
+			if (job_specs->pn_min_memory & MEM_PER_CPU)
+				entity = "cpu";
+			else
+				entity = "job";
+
+			detail_ptr->pn_min_memory = job_specs->pn_min_memory;
+			job_ptr->bit_flags |= JOB_MEM_SET; //necessary? when will it be cleaned?
+			//sched_info instead of debug5
+			debug5("%s: setting min_memory_%s to %"PRIu64" for %pJ",
+				   __func__, entity,
+				   (job_specs->pn_min_memory & (~MEM_PER_CPU)),
+				   job_ptr);
+		}
+	}else
+	{
+		FREE_NULL_BITMAP(orig_mem_bitmap);
+		return SLURM_ERROR;
+	}
+	
+	if(orig_pn_min_memory > job_specs->pn_min_memory){
+		debug5("%s call decrease!",__func__);
+		expand = false;
+	}else
+	{
+		debug5("%s call expand!",__func__);
+	}
+
+	//(void) select_g_resize_sim_job(job_ptr, expand);
+	//create another function
+	rc = select_g_job_resized(job_ptr, NULL);
+
+	debug5("%s rc %d after select_g_job_resized idle_nodes %d",__func__,rc,bit_set_count(idle_node_bitmap));
+	if(rc != SLURM_SUCCESS){
+		detail_ptr->pn_min_memory = detail_ptr->orig_pn_min_memory;
+		FREE_NULL_BITMAP(orig_mem_bitmap);
+		return rc;
+	}
+	
+	//I update this var here because 
+	//I will use orig_pn_min_memory in the plugin
+	detail_ptr->orig_pn_min_memory =
+			job_specs->pn_min_memory;
+
+
+	//call make_node_comp/idle using the diff between
+	//orig_mem_bitmap and details_ptr->memory_bitmap
+	bit_and_not(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+	first_bit = bit_ffs(orig_mem_bitmap);
+	if (first_bit != -1)
+		last_bit  = bit_fls(orig_mem_bitmap);
+	else
+		last_bit = first_bit - 1;
+	
+	for (i = first_bit; i <= last_bit; i++) {
+		if (!bit_test(orig_mem_bitmap, i))
+			continue;
+		node_ptr = node_record_table_ptr + i;
+		_sim_make_node_idle(node_ptr,job_ptr);
+	}
+	debug5("%s after _sim_make_node_idle idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
+
+	//call update_sim_job
+	//_check_job_status(job_ptr,false);
+	//call debug_utilization
+
+	FREE_NULL_BITMAP(orig_mem_bitmap);
+	return rc;
+}
+
 /*
  * IN msg - RPC to update job, including change specification
  * IN job_specs - a job's specification

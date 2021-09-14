@@ -4595,7 +4595,10 @@ static void _slurm_rpc_update_resize_sim_job(slurm_msg_t * msg)
 		}
 	}
 
+	//remove later. debug only
 	dump_job_desc(job_desc_msg);
+
+	error_code = update_resize_sim_job(msg, uid);
 
 	slurm_send_rc_msg(msg, error_code);
 
