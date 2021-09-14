@@ -277,6 +277,7 @@ static int _update_sim_job_status(struct job_record *job_ptr);
 double _compute_scale(struct job_record *job_ptr);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
+//int _single_check_job_status(struct job_record *job_ptr, bool completing);
 
 static int _job_fail_account(struct job_record *job_ptr, const char *func_name)
 {
@@ -5965,7 +5966,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 
 	/* FVZ: executing check function after complete the job */
 	debug_utilization(job_ptr, now, "end");
-	_check_job_status(job_ptr, true);
+	_check_job_status(job_ptr, true, false);
 
 	if ((job_return_code & 0xff) == SIG_OOM) {
 		info("%s: %pJ OOM failure",  __func__, job_ptr);
@@ -14019,10 +14020,12 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	struct job_resources *job;
 	struct node_record *node_ptr;
 	bitstr_t *orig_mem_bitmap = NULL;
-	uint64_t orig_pn_min_memory;
 	bool expand = true;
 	time_t now = time(NULL);
 	int rc = SLURM_SUCCESS, first_bit, last_bit, i;
+	ListIterator scan_iterator;
+    struct job_record *job_scan_ptr;
+	List update_jobs;
 
 	job_ptr = find_job_record(job_specs->job_id);
 	if (job_ptr == NULL) {
@@ -14047,12 +14050,11 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	detail_ptr = job_ptr->details;
 	job = job_ptr->job_resrcs;
 	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
-	orig_pn_min_memory = detail_ptr->pn_min_memory;
 	last_job_update = now;
 
 	if (job_specs->pn_min_memory != NO_VAL64) {
 		debug5("%s values orig_mem %u new_mem %u!",
-				__func__,orig_pn_min_memory,job_specs->pn_min_memory);
+				__func__,detail_ptr->pn_min_memory,job_specs->pn_min_memory);
 		if (job_specs->pn_min_memory
 			   == detail_ptr->pn_min_memory) {
 			sched_debug("%s: new memory limit identical to old limit for %pJ",
@@ -14082,14 +14084,6 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 		return SLURM_ERROR;
 	}
 	
-	if(orig_pn_min_memory > job_specs->pn_min_memory){
-		debug5("%s call decrease!",__func__);
-		expand = false;
-	}else
-	{
-		debug5("%s call expand!",__func__);
-	}
-
 	//(void) select_g_resize_sim_job(job_ptr, expand);
 	//create another function
 	rc = select_g_job_resized(job_ptr, NULL);
@@ -14125,11 +14119,57 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	debug5("%s after _sim_make_node_idle idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
 
 	//call update_sim_job
-	//_check_job_status(job_ptr,false);
-	//call debug_utilization
-
+	//start with the current job
+	//since we updated it
+	update_jobs = list_create(NULL);
+	list_append(update_jobs,job_ptr);
+	//remove or add to jobs_list jobs sharing
+	_update_sim_job_sharing(job_ptr, update_jobs);
+	scan_iterator = list_iterator_create(update_jobs);
+	while((job_scan_ptr = (struct job_record *) list_next(scan_iterator))){
+		_check_job_status(job_scan_ptr, false, true);		
+	}
+	list_iterator_destroy(scan_iterator);
+	
+	//call debug_utilization if necessary
+	
+	list_destroy(update_jobs);
 	FREE_NULL_BITMAP(orig_mem_bitmap);
 	return rc;
+}
+
+static int _find_entry(uint32_t x, void *key)
+{
+	uint32_t entry = (uint32_t) x;
+	uint32_t *id = (uint32_t *) key;
+
+	if (*id != entry)
+		return 0;
+
+	/* success! check passed, we've found it */
+	return 1;
+}
+
+void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
+	ListIterator scan_iterator;
+	struct job_record *job_scan_ptr;
+	uint32_t	job_scan_id;
+	uint32_t	jobid = job_ptr->job_id;
+
+	//improve function when it adds another job.
+	scan_iterator = list_iterator_create(job_ptr->job_share);
+	while((job_scan_id = (uint32_t) list_next(scan_iterator))){
+		job_scan_ptr = find_job_record(job_scan_id);
+		if(!_is_sharing_node(job_ptr,job_scan_ptr)){
+			debug5("SDDEBUG: %s for job_id=%u not sharing with job %u",
+					__func__,jobid,job_scan_ptr->job_id);
+			list_remove(scan_iterator);
+			list_remove_first(job_scan_ptr->job_share,_find_entry,&jobid);
+			list_append(to_update,job_scan_ptr);
+		}
+		//not sure if we need to update the job that is still sharing 
+	}
+	list_iterator_destroy(scan_iterator);
 }
 
 /*
@@ -19026,7 +19066,7 @@ int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *jo
 #endif
 
 //Nishtala: scheduling function
-extern int _check_job_status(struct job_record *job_ptr, bool completing) {
+extern int _check_job_status(struct job_record *job_ptr, bool completing, bool resized) {
     /*
      * Need to call this function periodically when the job starts and ends.
      * job_ptr -> current job
@@ -19060,7 +19100,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 
 	info("SDDEBUG: %s for job_id=%u", __func__,job_ptr->job_id);
 	
-	if(!completing){
+	if(!completing && !resized){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 			if(_is_sharing_node(job_ptr,job_scan_ptr)){				
 				list_append(job_ptr->job_share, job_scan_ptr->job_id);
@@ -19107,6 +19147,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 		/* we need to update the simulator's expect time to finish with the new time_left */
 		if(!completing) _update_sim_job_status(job_ptr);
 
+	if(!resized){
 	    job_iterator = list_iterator_create(job_ptr->job_share);
 		while ((jobid = (uint32_t) list_next(job_iterator))) {
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
@@ -19139,7 +19180,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing) {
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_min,scale,completing,count_job_scan_ptr);
 		}
 		list_iterator_destroy(job_iterator);
-	//}
+	}
 
 	if(completing){
 		list_destroy(job_ptr->job_share);

@@ -2485,13 +2485,11 @@ extern int select_p_job_resized(struct job_record *job_ptr,
 				struct node_record *node_ptr)
 {
 	struct job_details *detail_ptr;
-	//bitstr_t *orig_mem_bitmap = NULL;
 
 	xassert(job_ptr);
 	xassert(job_ptr->magic == JOB_MAGIC);
 
 	detail_ptr = job_ptr->details;
-	//orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
 
 	//_rm_job_from_one_node(job_ptr, node_ptr);
 	//Testing in this function. create another
@@ -2503,7 +2501,6 @@ extern int select_p_job_resized(struct job_record *job_ptr,
 		printf("expand");
 	}
 
-	//FREE_NULL_BITMAP(orig_mem_bitmap);
 	return SLURM_SUCCESS;
 }
 

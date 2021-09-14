@@ -388,12 +388,17 @@ time_mgr(void *arg) {
 					" simulation\n");
 			terminate_simulation(SIGINT);
 		}
-		if (!once && (t_start.tv_sec-100>100)) {
+		
+		//if (!once && (t_start.tv_sec-100>100)) {
+		//job_msg.job_id = 2;
+		//job_msg.pn_min_memory = (1024 | MEM_PER_CPU);
+
+		if (!once && (t_start.tv_sec-100>10100)) {
 			once = true;
 			//freeing job_msg and resp every time
 			fprintf(stderr, "sending resizing msg\n");
 			slurm_init_job_desc_msg (&job_msg);
-			job_msg.job_id = 2;
+			job_msg.job_id = 3;
 			job_msg.pn_min_memory = (1024 | MEM_PER_CPU);
 			slurm_update_resize_sim_job(&job_msg,&resp);
 			slurm_free_job_array_resp(resp);
@@ -818,7 +823,8 @@ int init_job_trace() {
 #endif
 		init_trace_info(&new_job, 0);
 		total_trace_records++;
-		if(total_trace_records == 1)
+		//remover if later. debug only
+		if(total_trace_records == 3)
 			break;
 	}
 	if (ret_val==-1) {

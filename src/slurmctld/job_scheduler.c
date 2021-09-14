@@ -2544,7 +2544,7 @@ extern void launch_job(struct job_record *job_ptr)
 
 	/* FVZ: executing check function before launching the job */
 	debug_utilization(job_ptr, job_ptr->start_time, "start");
-	_check_job_status(job_ptr, false);
+	_check_job_status(job_ptr, false, false);
 
 #ifndef SLURM_SIMULATOR
 	agent_arg_ptr = xmalloc(sizeof(agent_arg_t));
