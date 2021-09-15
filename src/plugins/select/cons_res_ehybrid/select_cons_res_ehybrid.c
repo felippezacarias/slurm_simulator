@@ -3110,16 +3110,19 @@ extern int select_p_select_nodeinfo_get(select_nodeinfo_t *nodeinfo,
 
 	switch (dinfo) {
 	case SELECT_NODEDATA_SUBCNT:
-		if (state == NODE_STATE_ALLOCATED)
-			*uint16 = nodeinfo->alloc_cpus;
-		else
-			*uint16 = 0;
+		//changing to node_state
+		*uint16 = select_node_usage[*uint16].node_state;
+		//if (state == NODE_STATE_ALLOCATED)
+		//	*uint16 = nodeinfo->alloc_cpus;
+		//else
+		//	*uint16 = 0;
 		break;
 	case SELECT_NODEDATA_PTR:
 		*select_nodeinfo = nodeinfo;
 		break;
 	case SELECT_NODEDATA_MEM_ALLOC:
-		*uint64 = nodeinfo->alloc_memory;
+		//*uint64 = nodeinfo->alloc_memory;
+		*uint64 = select_node_usage[*uint64].alloc_memory;
 		break;
 	case SELECT_NODEDATA_TRES_ALLOC_FMT_STR:
 		*tmp_char = xstrdup(nodeinfo->tres_alloc_fmt_str);

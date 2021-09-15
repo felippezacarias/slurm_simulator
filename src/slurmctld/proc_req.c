@@ -3767,21 +3767,22 @@ static void _slurm_rpc_shutdown_controller(slurm_msg_t * msg)
 static void _dump_node_mem_status()
 {
 	debug5("SDDEBUG: %s Dumping node final info",__func__);
-	debug5("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tcore_tot\tcpu_alloc");
+	debug5("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tstate_idle\tnode_state");
 	int i;
 	struct node_record *node_ptr;
-	uint16_t cpus_alloc;
+	uint16_t node_state;
 	uint64_t mem_alloc;
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 		i++, node_ptr++) {
-
+		node_state = i;
+		mem_alloc  = i;
 		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
 						SELECT_NODEDATA_MEM_ALLOC,
 						NODE_STATE_ALLOCATED, &mem_alloc);
 		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
 						SELECT_NODEDATA_SUBCNT,
-						NODE_STATE_ALLOCATED, &cpus_alloc);
-		debug5("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,node_ptr->cores,cpus_alloc);
+						NODE_STATE_ALLOCATED, &node_state);
+		debug5("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,NODE_STATE_UNKNOWN,node_state);
 
 	}
 
