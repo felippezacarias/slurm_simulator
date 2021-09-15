@@ -2504,10 +2504,8 @@ extern int select_p_job_resized(struct job_record *job_ptr,
 	return SLURM_SUCCESS;
 }
 
-void _find_mem_node(struct job_record *job_ptr, int *first_bit,
-					int last_bit, int *idx_mem, int idx_cpu_mem, int cpu_bit){
-
-	struct part_res_record *part_record_ptr = select_part_record;
+void _find_mem_node(struct job_record *job_ptr, int *first_bit, int last_bit, 
+					int *idx_mem, int idx_cpu_mem, int cpu_bit, uint16_t cores){
 	struct node_use_record *node_usage = select_node_usage;
 	struct job_resources *job = job_ptr->job_resrcs;
 	uint64_t remote_mem_node, remote;
@@ -2521,8 +2519,8 @@ void _find_mem_node(struct job_record *job_ptr, int *first_bit,
 		orig_save_mem = (job_ptr->details->orig_pn_min_memory &= (~MEM_PER_CPU));
 	}
 
-	orig_to_allocate = orig_save_mem*job->cpus[idx_cpu_mem];
-	to_allocate = save_mem*job->cpus[idx_cpu_mem]; //specified cpu
+	orig_to_allocate = orig_save_mem*cores;
+	to_allocate = save_mem*cores; //specified cpu
 	to_decrease = orig_to_allocate - to_allocate;
 	//remote memory allocated to this node
 	rem = orig_to_allocate - job->memory_allocated[idx_cpu_mem];
@@ -2560,7 +2558,7 @@ void _find_mem_node(struct job_record *job_ptr, int *first_bit,
 
 			info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node %s remote_memory_allocated %lu to_decrease %lu node_usage %lu cpus %u rem %d",
 						__func__,job_ptr->job_id,select_node_record[cpu_bit].node_ptr->name,
-						select_node_record[i].node_ptr->name,remote_mem_node,to_decrease,job->memory_allocated[*idx_mem],job->cpus[idx_cpu_mem],rem);
+						select_node_record[i].node_ptr->name,remote_mem_node,to_decrease,job->memory_allocated[*idx_mem],cores,rem);
 			
 			if(rem == 0 || to_decrease == 0)
 				break;
@@ -2571,12 +2569,17 @@ void _find_mem_node(struct job_record *job_ptr, int *first_bit,
 		*first_bit = i;
 	}
 
+	// I don't think that will happen in our simulation,
+	// but we may check if to_decrease > local_mem
 	if(to_decrease){
 		// We finished with the memory nodes for this node
 		// now we remove local memory
 		job->memory_allocated[idx_cpu_mem] -= to_decrease;
 		node_usage[cpu_bit].alloc_memory -= to_decrease;
 		to_decrease = 0;
+		info("SDDEBUG: %s memory_compute_node job_id %u node %s remote_mem_node %s to_decrease %lu node_usage %lu cpus %u rem %d",
+			__func__,job_ptr->job_id,select_node_record[cpu_bit].node_ptr->name,
+			select_node_record[cpu_bit].node_ptr->name,to_decrease,job->memory_allocated[idx_cpu_mem],cores,rem);
 	}
 
 	//return i;	
@@ -2657,8 +2660,8 @@ void extract_mem_node_job_resources(struct job_record *job_ptr){
 static int _decrease_mem_sim_job(struct job_record *job_ptr)
 {
 	struct job_resources *job = job_ptr->job_resrcs;
-	int first_bit, last_bit, i;
-	int idx_mem, idx_cpu, last_iter_bit, last_id_mem;
+	int first_bit, last_bit, i, idx_mem, idx_cpu;
+	int idx_cpu_mem, last_iter_bit, last_id_mem;
 
 	if (!job || !job->core_bitmap) {
 		error("%s: %s: %pJ has no job_resrcs info",
@@ -2679,9 +2682,12 @@ static int _decrease_mem_sim_job(struct job_record *job_ptr)
 		last_bit = first_bit - 1;
 	
 	last_iter_bit = first_bit;
-	for (i = first_bit, last_id_mem = -1, idx_cpu = -1; i <= last_bit; i++) {
+	for (i = first_bit, last_id_mem = -1, idx_cpu_mem = -1, idx_cpu = -1; i <= last_bit; i++) {
 		if (!bit_test(job->memory_pool_bitmap, i))
 			continue;
+		//getting the position of the memory for the cpu node
+		//in its resources
+		idx_cpu_mem++;
 
 		if(!bit_test(job->node_bitmap, i))
 			continue;
@@ -2694,7 +2700,8 @@ static int _decrease_mem_sim_job(struct job_record *job_ptr)
 		//and update the node usage structure if necessary
 		//we use last_iter_bit and last_id_mem to keep track of  
 		//the last indexes for memory nodes
-		_find_mem_node(job_ptr, &last_iter_bit, last_bit, &last_id_mem,idx_cpu, i);
+		_find_mem_node(job_ptr, &last_iter_bit, last_bit, 
+						&last_id_mem, idx_cpu_mem, i, job->cpus[idx_cpu]);
 	}
 
 	//remove nodes from bitmap
