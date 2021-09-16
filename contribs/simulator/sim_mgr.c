@@ -412,6 +412,13 @@ time_mgr(void *arg) {
 			slurm_update_resize_sim_job(&job_msg,&resp);
 			slurm_free_job_array_resp(resp);
 			resp = NULL;
+			fprintf(stderr, "sending resizing msg 3\n");
+			slurm_init_job_desc_msg (&job_msg);
+			job_msg.job_id = 3;
+			job_msg.pn_min_memory = (1152 | MEM_PER_CPU);
+			slurm_update_resize_sim_job(&job_msg,&resp);
+			slurm_free_job_array_resp(resp);
+			resp = NULL;
 		}
 
 		/* First going through threads and leaving a chance to execute code */

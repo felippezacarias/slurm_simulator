@@ -13950,8 +13950,7 @@ extern int update_job(slurm_msg_t *msg, uid_t uid, bool send_msg)
 }
 
 void _sim_make_node_idle(struct node_record *node_ptr,
-		    struct job_record *job_ptr)
-{
+		    struct job_record *job_ptr){
 	int inx = node_ptr - node_record_table_ptr;
 	time_t now = time(NULL);
 	uint32_t node_flags;
@@ -14049,7 +14048,6 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	
 	detail_ptr = job_ptr->details;
 	job = job_ptr->job_resrcs;
-	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
 	last_job_update = now;
 
 	if (job_specs->pn_min_memory != NO_VAL64) {
@@ -14059,6 +14057,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 			   == detail_ptr->pn_min_memory) {
 			sched_debug("%s: new memory limit identical to old limit for %pJ",
 				    __func__, job_ptr);
+			return rc;
 		} else {
 			char *entity;
 			if (job_specs->pn_min_memory == MEM_PER_CPU) {
@@ -14080,9 +14079,10 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 		}
 	}else
 	{
-		FREE_NULL_BITMAP(orig_mem_bitmap);
 		return SLURM_ERROR;
 	}
+
+	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
 	
 	//(void) select_g_resize_sim_job(job_ptr, expand);
 	//create another function
@@ -14098,6 +14098,9 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	
 	//I update this var here because 
 	//I will use orig_pn_min_memory in the plugin
+	expand = (detail_ptr->orig_pn_min_memory >
+			job_specs->pn_min_memory) ? true : false;
+
 	detail_ptr->orig_pn_min_memory =
 			job_specs->pn_min_memory;
 
@@ -14115,9 +14118,14 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 		if (!bit_test(orig_mem_bitmap, i))
 			continue;
 		node_ptr = node_record_table_ptr + i;
-		_sim_make_node_idle(node_ptr,job_ptr);
+		if(!expand){
+			_sim_make_node_idle(node_ptr,job_ptr);
+		}else{
+			make_node_alloc(node_ptr,job_ptr);
+		}
 	}
-	debug5("%s after _sim_make_node_idle idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
+	debug5("%s after _sim_make_node_ idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
+	
 
 	//call update_sim_job
 	//start with the current job
@@ -14154,20 +14162,31 @@ static int _find_entry(uint32_t x, void *key)
 void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
 	ListIterator scan_iterator;
 	struct job_record *job_scan_ptr;
-	uint32_t	job_scan_id;
+	uint32_t	*job_scan_id = NULL;
 	uint32_t	jobid = job_ptr->job_id;
 
 	//improve function when it adds another job.
-	scan_iterator = list_iterator_create(job_ptr->job_share);
-	while((job_scan_id = (uint32_t) list_next(scan_iterator))){
-		job_scan_ptr = find_job_record(job_scan_id);
+	scan_iterator = list_iterator_create(job_list);
+	while((job_scan_ptr = (struct job_record *) list_next(scan_iterator))){
+		if(job_scan_ptr->job_id == jobid)
+			continue;
 		if(!_is_sharing_node(job_ptr,job_scan_ptr)){
 			debug5("SDDEBUG: %s for job_id=%u not sharing with job %u",
 					__func__,jobid,job_scan_ptr->job_id);
-			list_remove(scan_iterator);
-			list_remove_first(job_scan_ptr->job_share,_find_entry,&jobid);
-			list_append(to_update,job_scan_ptr);
-		}
+			job_scan_id = list_remove_first(job_scan_ptr->job_share,_find_entry,&jobid);
+			list_remove_first(job_ptr->job_share,_find_entry,&job_scan_ptr->job_id);
+			if(job_scan_id != NULL)
+				list_append(to_update,job_scan_ptr);
+		}else{
+			job_scan_id = list_find_first(job_scan_ptr->job_share,_find_entry,&jobid);
+			if((job_scan_id == NULL)){
+				debug5("SDDEBUG: %s for job_id=%u new sharing with job %u",
+					__func__,jobid,job_scan_ptr->job_id);
+				list_append(job_scan_ptr->job_share,jobid);
+				list_append(job_ptr->job_share,job_scan_ptr->job_id);
+				list_append(to_update,job_scan_ptr);
+			}
+		}		
 		//not sure if we need to update the job that is still sharing 
 	}
 	list_iterator_destroy(scan_iterator);
