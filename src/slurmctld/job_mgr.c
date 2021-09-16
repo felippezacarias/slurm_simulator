@@ -14086,6 +14086,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	
 	//(void) select_g_resize_sim_job(job_ptr, expand);
 	//create another function
+	//to increase it will receive a bitstr_t with avail_node
 	rc = select_g_job_resized(job_ptr, NULL);
 
 	debug5("%s rc %d after select_g_job_resized idle_nodes %d",__func__,rc,bit_set_count(idle_node_bitmap));
