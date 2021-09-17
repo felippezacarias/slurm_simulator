@@ -13949,6 +13949,7 @@ extern int update_job(slurm_msg_t *msg, uid_t uid, bool send_msg)
 	return rc;
 }
 
+//Later fix these functions. They are in node_mgr.c
 void _sim_make_node_idle(struct node_record *node_ptr,
 		    struct job_record *job_ptr){
 	int inx = node_ptr - node_record_table_ptr;
@@ -14011,6 +14012,52 @@ void _sim_make_node_idle(struct node_record *node_ptr,
 	last_node_update = now;
 }
 
+//TODO: fix later. it is the same as in node_mgr.c
+void _sim_make_node_alloc(struct node_record *node_ptr,
+			    struct job_record *job_ptr)
+{
+	int inx = node_ptr - node_record_table_ptr;
+	uint32_t node_flags;
+	uint64_t mem_alloc;
+
+	debug5("SDDEBUG: entering %s job_id %u name %s running_jobs %u state %u",
+		__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state);
+	
+
+	(node_ptr->run_job_cnt)++;
+
+	bit_clear(idle_node_bitmap, inx);
+
+	if (job_ptr->details && (job_ptr->details->share_res == 0)) {
+		bit_clear(share_node_bitmap, inx);
+		(node_ptr->no_share_job_cnt)++;
+	}
+
+	if ((job_ptr->details &&
+	     (job_ptr->details->whole_node == WHOLE_NODE_USER)) ||
+	    (job_ptr->part_ptr &&
+	     (job_ptr->part_ptr->flags & PART_FLAG_EXCLUSIVE_USER))) {
+		node_ptr->owner_job_cnt++;
+		node_ptr->owner = job_ptr->user_id;
+	}
+
+	if (slurm_mcs_get_select(job_ptr) == 1) {
+		xfree(node_ptr->mcs_label);
+		node_ptr->mcs_label = xstrdup(job_ptr->mcs_label);
+	}
+
+	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
+	node_ptr->node_state = NODE_STATE_ALLOCATED | node_flags;
+	xfree(node_ptr->reason);
+	node_ptr->reason_time = 0;
+	node_ptr->reason_uid = NO_VAL;
+
+	debug5("SDDEBUG: %s job_id %u name %s running_jobs %u state %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state);
+
+	last_node_update = time(NULL);
+}
+
 extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 {
 	job_desc_msg_t *job_specs = (job_desc_msg_t *) msg->data;
@@ -14019,7 +14066,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	struct job_resources *job;
 	struct node_record *node_ptr;
 	bitstr_t *orig_mem_bitmap = NULL;
-	bool expand = true;
+	bool expand;
 	time_t now = time(NULL);
 	int rc = SLURM_SUCCESS, first_bit, last_bit, i;
 	ListIterator scan_iterator;
@@ -14059,7 +14106,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 				    __func__, job_ptr);
 			return rc;
 		} else {
-			char *entity;
+			char *entity,*mode;
 			if (job_specs->pn_min_memory == MEM_PER_CPU) {
 				/* Map --mem-per-cpu=0 to --mem=0 */
 				job_specs->pn_min_memory = 0;
@@ -14069,11 +14116,19 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 			else
 				entity = "job";
 
+			expand = (job_specs->pn_min_memory
+			   > detail_ptr->pn_min_memory);
+
+			if(expand)
+				mode = "expanding";
+			else
+				mode = "decreasing";	
+
 			detail_ptr->pn_min_memory = job_specs->pn_min_memory;
 			job_ptr->bit_flags |= JOB_MEM_SET; //necessary? when will it be cleaned?
 			//sched_info instead of debug5
-			debug5("%s: setting min_memory_%s to %"PRIu64" for %pJ",
-				   __func__, entity,
+			debug5("%s: %s min_memory_%s to %"PRIu64" for %pJ",
+				   __func__, mode, entity,
 				   (job_specs->pn_min_memory & (~MEM_PER_CPU)),
 				   job_ptr);
 		}
@@ -14083,7 +14138,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	}
 
 	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
-	
+		
 	//(void) select_g_resize_sim_job(job_ptr, expand);
 	//create another function
 	//to increase it will receive a bitstr_t with avail_node
@@ -14098,16 +14153,22 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	
 	//I update this var here because 
 	//I will use orig_pn_min_memory in the plugin
-	expand = (detail_ptr->orig_pn_min_memory >
-			job_specs->pn_min_memory) ? true : false;
-
 	detail_ptr->orig_pn_min_memory =
 			job_specs->pn_min_memory;
 
 
 	//call make_node_comp/idle using the diff between
 	//orig_mem_bitmap and details_ptr->memory_bitmap
-	bit_and_not(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+	if(expand){
+		bitstr_t *aux;
+		aux = bit_copy(orig_mem_bitmap);
+		bit_or(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+		bit_and_not(orig_mem_bitmap,aux);
+		FREE_NULL_BITMAP(aux);
+	}
+	else
+		bit_and_not(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+	
 	first_bit = bit_ffs(orig_mem_bitmap);
 	if (first_bit != -1)
 		last_bit  = bit_fls(orig_mem_bitmap);
@@ -14118,13 +14179,15 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 		if (!bit_test(orig_mem_bitmap, i))
 			continue;
 		node_ptr = node_record_table_ptr + i;
-		if(!expand){
-			_sim_make_node_idle(node_ptr,job_ptr);
+		if(expand){
+			debug5("%s entering if %d",__func__,expand);
+			_sim_make_node_alloc(node_ptr,job_ptr);
 		}else{
-			make_node_alloc(node_ptr,job_ptr);
+			_sim_make_node_idle(node_ptr,job_ptr);
 		}
 	}
-	debug5("%s after _sim_make_node_ idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
+	debug5("%s after _sim_make_node_ idle_nodes %d expand %d",
+			__func__,bit_set_count(idle_node_bitmap),expand);
 	
 
 	//call update_sim_job
@@ -14169,6 +14232,8 @@ void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
 	scan_iterator = list_iterator_create(job_list);
 	while((job_scan_ptr = (struct job_record *) list_next(scan_iterator))){
 		if(job_scan_ptr->job_id == jobid)
+			continue;
+		if(!IS_JOB_RUNNING(job_scan_ptr))
 			continue;
 		if(!_is_sharing_node(job_ptr,job_scan_ptr)){
 			debug5("SDDEBUG: %s for job_id=%u not sharing with job %u",

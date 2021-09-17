@@ -3819,6 +3819,9 @@ extern void make_node_alloc(struct node_record *node_ptr,
 	node_ptr->reason_time = 0;
 	node_ptr->reason_uid = NO_VAL;
 
+	debug5("SDDEBUG: %s job_id %u name %s running_jobs %u state %u",
+			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->node_state);
+
 	last_node_update = time(NULL);
 }
 

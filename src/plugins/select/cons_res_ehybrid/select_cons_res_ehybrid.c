@@ -2576,9 +2576,11 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 	if(avail){
 		if(to_increase >= avail){
 			job->memory_allocated[idx_cpu_mem]+=avail;
+			node_usage[cpu_bit].alloc_memory+=avail;
 			to_increase -= avail;
 		}else{
 			job->memory_allocated[idx_cpu_mem]+=to_increase;
+			node_usage[cpu_bit].alloc_memory+=to_increase;
 			to_increase = 0;
 		}
 	}
@@ -2599,15 +2601,18 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		if(avail){
 			if(to_increase >= avail){
 				job->memory_allocated[idx_mem]+=avail;
+				node_usage[i].alloc_memory+=avail;
 				to_increase -= avail;
 			}else{
 				job->memory_allocated[idx_mem]+=to_increase;
+				node_usage[i].alloc_memory+=to_increase;
 				to_increase = 0;
 			}
 		}
 	}
 
 	//finding new remote nodes
+	//for new remote nodes we update node_usage later
 	cnt = bit_set_count(avail_bitmap);
 	new_allocation = xmalloc(cnt * sizeof(int));
 	memset(new_allocation,0,cnt);
@@ -2627,6 +2632,10 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		avail = node_record[i].real_memory - 
 			node_usage[i].alloc_memory;
 
+		info("SDDEBUG: %s job_id %u adding remote_memory_node %s to node %s avail %d to_increase %lu",
+			__func__,job_ptr->job_id,node_record[i].node_ptr->name,node_record[cpu_bit].node_ptr->name,
+			avail,to_increase);
+
 		if(to_increase >= avail){
 			new_allocation[cnt] = avail;
 			to_increase -= avail;
@@ -2638,9 +2647,6 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		cnt++;
 		bit_set(job->memory_pool_bitmap,i);
 		bit_clear(avail_bitmap,i);
-		info("SDDEBUG: %s job_id %u adding remote_memory_node %s to node %s avail %d to_increase %lu",
-			__func__,job_ptr->job_id,node_record[i].node_ptr->name,node_record[cpu_bit].node_ptr->name,
-			avail,to_increase);
 	}
 
 	//Adding memory nodes index to the job resource structure
@@ -2662,6 +2668,7 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 
 		xfree(remote_mem_idx);
 
+		
 		//Reorganizing the memory_allocated structure
 		//for loop to increase memory_allocated array and copy the values.
 		memory_allocated = xmalloc((orig_mem_nhosts + cnt) * sizeof(uint64_t));
@@ -2681,6 +2688,7 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 
 			if (!bit_test(orig_mem_bitmap, i)){
 				//call add_job_to_res to change node run_job and state
+				//of the new addded remote nodes
 				memory_allocated[j] 		= new_allocation[cnt];
 				node_usage[i].alloc_memory += new_allocation[cnt];
 				node_usage[i].node_state   += job->node_req;
@@ -2699,6 +2707,7 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 
 		job->memory_allocated = memory_allocated;
 		job->memory_used = memory_used;
+		
 	}
 
 	if(to_increase){
