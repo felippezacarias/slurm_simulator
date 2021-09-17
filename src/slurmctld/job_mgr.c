@@ -14137,7 +14137,7 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 		return SLURM_ERROR;
 	}
 
-	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+	orig_mem_bitmap = bit_copy(job->memory_pool_bitmap);
 		
 	//(void) select_g_resize_sim_job(job_ptr, expand);
 	//create another function
@@ -14162,12 +14162,12 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 	if(expand){
 		bitstr_t *aux;
 		aux = bit_copy(orig_mem_bitmap);
-		bit_or(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+		bit_or(orig_mem_bitmap,job->memory_pool_bitmap);
 		bit_and_not(orig_mem_bitmap,aux);
 		FREE_NULL_BITMAP(aux);
 	}
 	else
-		bit_and_not(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
+		bit_and_not(orig_mem_bitmap,job->memory_pool_bitmap);
 	
 	first_bit = bit_ffs(orig_mem_bitmap);
 	if (first_bit != -1)
@@ -14186,6 +14186,10 @@ extern int update_resize_sim_job(slurm_msg_t *msg, uid_t uid)
 			_sim_make_node_idle(node_ptr,job_ptr);
 		}
 	}
+
+	//important update it
+	job_ptr->node_cnt = bit_set_count(job->memory_pool_bitmap);
+
 	debug5("%s after _sim_make_node_ idle_nodes %d expand %d",
 			__func__,bit_set_count(idle_node_bitmap),expand);
 	

@@ -2538,22 +2538,24 @@ void _avail_mem_bitmap(bitstr_t *avail_bitmap){
 }
 
 int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap, 
-					int idx_cpu_mem, int idx_cpu, int cpu_bit){
+					int idx_cpu_mem, int idx_cpu, int cpu_bit,
+					bitstr_t *tmp_mem_bitmap, uint64_t **p_memory_allocated, uint64_t **p_memory_used){
 	struct node_use_record *node_usage = select_node_usage;
 	struct node_res_record *node_record = select_node_record;
 	struct job_resources *job = job_ptr->job_resrcs;
-	uint32_t orig_mem_nhosts;
+	uint32_t old_mem_nhosts;
 	uint64_t orig_save_mem, save_mem;
 	uint64_t orig_to_allocate, to_allocate, to_increase;
 	uint64_t *memory_allocated, *memory_used;
-	bitstr_t *orig_mem_bitmap = NULL;
+	bitstr_t *old_mem_bitmap = NULL;
 	int *remote_mem_idx = job->memory_nodes_index[idx_cpu];
 	int *new_allocation = NULL, *new_allocation_id = NULL;
-	int i, j, avail, idx_mem, first_bit, last_bit, cnt;
+	int i, j, avail, idx_mem, idx_mem_old, first_bit, last_bit, cnt = 0;
 	int rc = SLURM_SUCCESS;
+	bool to_free = true;
 
-	orig_mem_nhosts = job->memory_nhosts;
-	orig_mem_bitmap = bit_copy(job->memory_pool_bitmap);
+	old_mem_nhosts = bit_set_count(tmp_mem_bitmap);
+	old_mem_bitmap = bit_copy(tmp_mem_bitmap);
 
 
 	save_mem = job_ptr->details->pn_min_memory;
@@ -2613,11 +2615,20 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 
 	//finding new remote nodes
 	//for new remote nodes we update node_usage later
-	cnt = bit_set_count(avail_bitmap);
-	new_allocation = xmalloc(cnt * sizeof(int));
-	memset(new_allocation,0,cnt);
-	new_allocation_id = xmalloc(cnt * sizeof(int));
-	memset(new_allocation_id,0,cnt);
+	j = bit_set_count(avail_bitmap);
+	new_allocation = xmalloc(j * sizeof(int));
+	memset(new_allocation,0,j);
+	new_allocation_id = xmalloc(j * sizeof(int));
+	memset(new_allocation_id,0,j);
+
+	//we add p_memory_allocated to job-> resources
+	//so we check it here
+	if(*p_memory_allocated == NULL){
+			debug5("SDDEBUG: %s job_id %u entering p_memory_allocated == NULL",__func__);
+			*p_memory_allocated = job->memory_allocated;
+			*p_memory_used	   = job->memory_used;
+			to_free = false;
+	}
 
 	first_bit = bit_ffs(avail_bitmap);
 	if (first_bit != -1)
@@ -2645,15 +2656,15 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		}
 		new_allocation_id[cnt] = i;
 		cnt++;
-		bit_set(job->memory_pool_bitmap,i);
+		bit_set(tmp_mem_bitmap,i);
 		bit_clear(avail_bitmap,i);
 	}
 
 	//Adding memory nodes index to the job resource structure
 	//and rearranging memory_allocated
 	if(cnt){
-		debug5("SDDEBUG: %s job_id %u cnt %d remote_mem_idx[0] %d",
-			__func__,job_ptr->job_id,cnt,remote_mem_idx[0]);
+		debug5("SDDEBUG: %s job_id %u cnt %d remote_mem_idx[0] %d to_free %d",
+			__func__,job_ptr->job_id,cnt,remote_mem_idx[0],to_free);
 
 		remote_mem_idx[0]+=cnt;
 
@@ -2671,22 +2682,22 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		
 		//Reorganizing the memory_allocated structure
 		//for loop to increase memory_allocated array and copy the values.
-		memory_allocated = xmalloc((orig_mem_nhosts + cnt) * sizeof(uint64_t));
-		memory_used      = xmalloc((orig_mem_nhosts + cnt)  * sizeof(uint64_t));
+		memory_allocated = xmalloc((old_mem_nhosts + cnt) * sizeof(uint64_t));
+		memory_used      = xmalloc((old_mem_nhosts + cnt)  * sizeof(uint64_t));
 
-		first_bit = bit_ffs(job->memory_pool_bitmap);
+		first_bit = bit_ffs(tmp_mem_bitmap);
 		if (first_bit != -1)
-			last_bit  = bit_fls(job->memory_pool_bitmap);
+			last_bit  = bit_fls(tmp_mem_bitmap);
 		else
 			last_bit = first_bit - 1;
 
-		for (i = first_bit, j=-1, cnt=0, idx_mem=0; i <= last_bit; i++) {
-			if (!bit_test(job->memory_pool_bitmap, i))
+		for (i = first_bit, j=-1, cnt=0, idx_mem=0, idx_mem_old=0; i <= last_bit; i++) {
+			if (!bit_test(tmp_mem_bitmap, i))
 				continue;
 			
 			j++;
 
-			if (!bit_test(orig_mem_bitmap, i)){
+			if (!bit_test(old_mem_bitmap, i)){
 				//call add_job_to_res to change node run_job and state
 				//of the new addded remote nodes
 				memory_allocated[j] 		= new_allocation[cnt];
@@ -2694,20 +2705,28 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 				node_usage[i].node_state   += job->node_req;
 				cnt++;
 			}else{
-				memory_allocated[j] = job->memory_allocated[idx_mem++];
+				//if the node is new from any iteration of this function
+				//we use the new array. otherwise we use the original
+				if (!bit_test(job->memory_pool_bitmap, i))
+					memory_allocated[j] = (*p_memory_allocated)[idx_mem];
+				else
+					memory_allocated[j] = job->memory_allocated[idx_mem_old++];
+				//even though p_memory_allocated contains memory_allocated
+				//we have to increment its index to get the updated value from
+				//job->memory_allocated. 
+				idx_mem++;
 			}
+			info("SDDEBUG: %s adding new node job_id %u mem_allocated[%d] %lu",
+						__func__,job_ptr->job_id,j,memory_allocated[j]);
 		}
 
-		xfree(job->memory_nodes);
-		job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
-		job->memory_nhosts     = bit_set_count(job->memory_pool_bitmap);
+		if(to_free){
+			xfree(*p_memory_allocated);
+			xfree(*p_memory_used);
+		}
 
-		xfree(job->memory_allocated);
-		xfree(job->memory_used);
-
-		job->memory_allocated = memory_allocated;
-		job->memory_used = memory_used;
-		
+		*p_memory_allocated = memory_allocated;
+		*p_memory_used = memory_used;
 	}
 
 	if(to_increase){
@@ -2717,7 +2736,7 @@ int _add_remote_mem_to_node(struct job_record *job_ptr,	bitstr_t *avail_bitmap,
 		rc = SLURM_ERROR;
 	}
 
-	FREE_NULL_BITMAP(orig_mem_bitmap);
+	FREE_NULL_BITMAP(old_mem_bitmap);
 	xfree(new_allocation_id);
 	xfree(new_allocation);
 
@@ -2728,23 +2747,24 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, bitstr_t *avail_bit
 {
 	int rc = SLURM_SUCCESS;
 	struct job_resources *job = job_ptr->job_resrcs;
-	bitstr_t *orig_mem_bitmap = NULL;
-	int i, idx_cpu_mem, idx_cpu;
+	bitstr_t *tmp_mem_bitmap = NULL;
+	uint64_t *memory_allocated = NULL, *memory_used = NULL;
+	int i, j, idx_cpu_mem, idx_cpu;
 	int first_bit, last_bit;
 
-	orig_mem_bitmap = bit_copy(job->memory_pool_bitmap);
+	tmp_mem_bitmap = bit_copy(job->memory_pool_bitmap);
 	//clear bit from bitmap that does not have mem avail
 	_avail_mem_bitmap(avail_bitmap);
 
-	first_bit = bit_ffs(orig_mem_bitmap);
+	first_bit = bit_ffs(job->memory_pool_bitmap);
 	if (first_bit != -1)
-		last_bit  = bit_fls(orig_mem_bitmap);
+		last_bit  = bit_fls(job->memory_pool_bitmap);
 	else
 		last_bit = first_bit - 1;
 	
 	//processing each cpu node
 	for (i = first_bit, idx_cpu_mem = -1, idx_cpu = -1; i <= last_bit; i++) {
-		if (!bit_test(orig_mem_bitmap, i))
+		if (!bit_test(job->memory_pool_bitmap, i))
 			continue;
 
 		idx_cpu_mem++;
@@ -2754,11 +2774,29 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, bitstr_t *avail_bit
 		
 		idx_cpu++;
 
-		rc = _add_remote_mem_to_node(job_ptr, avail_bitmap, idx_cpu_mem, idx_cpu, i);
+		rc = _add_remote_mem_to_node(job_ptr, avail_bitmap, idx_cpu_mem, idx_cpu, i, 
+									  tmp_mem_bitmap, &memory_allocated, &memory_used);
+		
+		for(j=0;j<bit_set_count(tmp_mem_bitmap);j++)
+			info("SDDEBUG: %s job_id %u mem_allocated[%d] %lu",
+						__func__,job_ptr->job_id,j,memory_allocated[j]);
 
 	}
 
-	FREE_NULL_BITMAP(orig_mem_bitmap);
+	FREE_NULL_BITMAP(job->memory_pool_bitmap);
+	job->memory_pool_bitmap = tmp_mem_bitmap;
+	//add memory_allocated array on jobresrc
+	xfree(job->memory_nodes);
+	job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
+	job->memory_nhosts     = bit_set_count(job->memory_pool_bitmap);
+
+	xfree(job->memory_allocated);
+	xfree(job->memory_used);
+
+	job->memory_allocated = memory_allocated;
+	job->memory_used = memory_used;
+
+
 	return rc;
 }
 
