@@ -106,6 +106,7 @@ const char *node_select_syms[] = {
 	"select_p_update_node_state",
 	"select_p_reconfigure",
 	"select_p_resv_test",
+	"select_p_usage_resize",
 };
 
 static int select_context_cnt = -1;
@@ -686,6 +687,16 @@ extern int select_g_job_resume(struct job_record *job_ptr, bool indf_susp)
 
 	return (*(ops[select_context_default].job_resume))
 		(job_ptr, indf_susp);
+}
+
+
+extern int select_g_usage_resize(struct job_record *job_ptr, List usage)
+{
+	if (slurm_select_init(0) < 0)
+		return SLURM_ERROR;
+
+	return (*(ops[select_context_default].usage_resize))
+		(job_ptr, usage);
 }
 
 extern double select_g_allocated_remote_ratio(struct job_record *job_ptr)

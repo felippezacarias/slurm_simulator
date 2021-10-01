@@ -5153,4 +5153,19 @@ extern void slurm_destroy_federation_rec(void *fed);
 }
 #endif
 
+/*****************************************************************************\
+ *      SIMULATOR USAGE STRUCTURES
+\*****************************************************************************/
+#ifdef SLURM_SIMULATOR
+
+typedef struct job_usage_trace {
+    int  job_id;
+    int  node;
+    unsigned long long int  pn_mim_memory;
+    int  id_event;
+    struct job_usage_trace *next;
+} job_usage_trace_t;
+
+#endif
+
 #endif

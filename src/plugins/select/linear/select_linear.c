@@ -3885,6 +3885,10 @@ extern int select_p_job_resume(struct job_record *job_ptr, bool indf_susp)
 	return rc;
 }
 
+extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
+	return SLURM_SUCCESS;
+}
+
 extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 {
 	return 1.0;

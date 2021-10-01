@@ -3763,21 +3763,23 @@ static void _slurm_rpc_shutdown_controller(slurm_msg_t * msg)
 static void _dump_node_mem_status()
 {
 	debug5("SDDEBUG: %s Dumping node final info",__func__);
-	debug5("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tcore_tot\tcpu_alloc");
+	debug5("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tstate_idle\tnode_state");
 	int i;
 	struct node_record *node_ptr;
-	uint16_t cpus_alloc;
+	uint16_t node_state;
 	uint64_t mem_alloc;
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 		i++, node_ptr++) {
 
+		node_state = i;
+		mem_alloc  = i;
 		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
 						SELECT_NODEDATA_MEM_ALLOC,
 						NODE_STATE_ALLOCATED, &mem_alloc);
 		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
 						SELECT_NODEDATA_SUBCNT,
-						NODE_STATE_ALLOCATED, &cpus_alloc);
-		debug5("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,node_ptr->cores,cpus_alloc);
+						NODE_STATE_ALLOCATED, &node_state);
+		debug5("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,NODE_STATE_UNKNOWN,node_state);
 
 	}
 
@@ -7096,6 +7098,7 @@ void close_BF_sync_semaphore() {
 
 static time_t last_helper_schedule_time=0;
 static time_t last_helper_backfill_time=0;
+static time_t last_trace_usage=0;
 #define HELPER_SCHEDULE_PERIOD_S 11
 #define HELPER_BACKFILL_PERIOD_S 23
 
@@ -7131,6 +7134,12 @@ static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
         debug3("Processing RPC: MESSAGE_SIM_HELPER_CYCLE for %d jobs",
                         helper_msg->total_jobs_ended);
         time_t current_time=time(NULL);
+		//checking trace usage
+		if((current_time-last_trace_usage)>trace_usage_interval){
+			debug5("%s unlocking trace_usage! current_time %lu",__func__,current_time);
+			enforce_trace_usage();
+			last_trace_usage = current_time;
+		}
           if (get_scheduler_cnt() > 0) {
                 reset_scheduler_cnt();
 //        if (last_helper_schedule_time==0 ||

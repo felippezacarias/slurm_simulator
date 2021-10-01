@@ -157,6 +157,8 @@ typedef struct slurm_select_ops {
 						 uint32_t node_cnt,
 						 bitstr_t *avail_bitmap,
 						 bitstr_t **core_bitmap);
+	int 	(*usage_resize) (struct job_record *job_ptr,
+							 List usage);
 } slurm_select_ops_t;
 
 /*
@@ -550,6 +552,13 @@ extern int select_g_job_resized(struct job_record *job_ptr,
  * IN job_ptr - pointer to job
  */
 extern double select_g_allocated_remote_ratio(struct job_record *job_ptr);
+
+/*
+ * Return the remote to local ratio of the memory allocated
+ * for the job_ptr.
+ * IN job_ptr - pointer to job
+ */
+extern int select_g_usage_resize(struct job_record *job_ptr, List usage);
 
 /*******************************************************\
  * STEP SPECIFIC SELECT CREDENTIAL MANAGEMENT FUNCIONS *

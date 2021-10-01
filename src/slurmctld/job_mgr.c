@@ -18634,6 +18634,116 @@ extern void send_job_warn_signal(struct job_record *job_ptr, bool ignore_time)
 }
 
 #ifdef SLURM_SIMULATOR
+
+int _update_resize_sim_job(List usage){
+
+}
+
+
+int find_list_usage_item(void *object, void *key)
+{
+	job_usage_trace_t *tmp = (job_usage_trace_t *)object;
+	job_usage_trace_t *tmp_key = (job_usage_trace_t *)key;
+	
+	return ((tmp->job_id == tmp_key->job_id) &&
+			(tmp->id_event == tmp_key->id_event));
+}
+
+int _enforce_trace_usage(struct job_record *job_ptr){
+	job_usage_trace_t *scan;
+	int rc = SLURM_SUCCESS, id_event, job_id;
+	List usage;
+	ListIterator scan_iterator;
+	bitstr_t *orig_mem_bitmap = NULL;
+	uint64_t orig_pn_min_memory;
+	time_t now = time(NULL);
+
+	scan_iterator = list_iterator_create(trace_usage);
+	usage = list_create(NULL); // It has to be NULL, because the del func will be in the
+							   // constructor of trace_usage list
+	
+
+	//find first usage event for this job
+	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
+		if(scan->job_id != job_ptr->job_id)
+			continue;
+		
+		break;
+	}
+	
+	if(scan == NULL){
+		debug5("%s There is no usage event for job %lu",__func__,job_ptr->job_id);
+		list_iterator_destroy(scan_iterator);
+		list_destroy(usage);
+		return rc;
+	}
+
+
+	//append the event on a list, then find the others
+	list_append(usage,scan);
+	job_id   = scan->job_id;
+	id_event = scan->id_event;
+
+	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator)) && 
+		  (scan->job_id == job_id) && 
+		  (scan->id_event == id_event)){
+
+		list_append(usage,scan);
+	}
+
+	debug5("%s Updating job %lu using %d usage events" ,
+			__func__,job_ptr->job_id,list_count(usage));
+
+	
+	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+	orig_pn_min_memory = job_ptr->details->pn_min_memory;
+	last_job_update = now;
+
+	//call the allocation plugin.
+	rc = select_g_usage_resize(job_ptr, usage);
+
+	debug5("%s rc %d after select_g_usage_resize idle_nodes %d",__func__,rc,bit_set_count(idle_node_bitmap));
+
+	scan = list_pop(usage);
+
+	list_iterator_destroy(scan_iterator);
+	list_destroy(usage);
+
+	list_delete_all(trace_usage,find_list_usage_item,scan);
+	FREE_NULL_BITMAP(orig_mem_bitmap);
+
+	//call _check_job_status(job_ptr, true, false);
+
+	return rc;
+
+}
+
+int enforce_trace_usage(){
+	struct job_record *job_ptr = NULL;
+	int rc = SLURM_SUCCESS;
+	ListIterator scan_iterator, job_iterator;
+
+	job_iterator = list_iterator_create(job_list);
+	
+	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
+		if (!IS_JOB_RUNNING(job_ptr))
+			continue;
+
+		//check if the job has usage record.
+		//get the first. Check if there is more with the same jobid and event_id
+		//enforce mem calling function in job_mgr.
+		//if returns erro we kill the job.
+		//remove event from the trace_usage list
+		_enforce_trace_usage(job_ptr);
+
+	}
+	list_iterator_destroy(job_iterator);
+	
+	
+	return rc;	
+	
+}
+
 static int _update_sim_job_status(struct job_record *job_ptr){
 	sim_job_msg_t req;
 	slurm_msg_t   req_msg, resp_msg;

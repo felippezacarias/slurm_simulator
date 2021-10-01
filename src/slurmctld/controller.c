@@ -140,6 +140,8 @@
 #define SHUTDOWN_WAIT     2	/* Time to wait for backup server shutdown */
 #define JOB_COUNT_INTERVAL 30   /* Time to update running job count */
 
+#define TRACE_USAGE_INTERVAL	30 /* Time to update job usage */
+
 /**************************************************************************\
  * To test for memory leaks, set MEMORY_LEAK_DEBUG to 1 using
  * "configure --enable-memory-leak-debug" then execute
@@ -200,6 +202,8 @@ pthread_cond_t assoc_cache_cond = PTHREAD_COND_INITIALIZER;
 /* FVZ: ... */
 double bw_threshold;
 int is_multi_curve;
+char *trace_usage_path = NULL;
+int	trace_usage_interval = TRACE_USAGE_INTERVAL;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -228,6 +232,7 @@ char SEM_NAME[]		= "serversem";
 sem_t* mutexserver	= SEM_FAILED;
 int total_log_jobs=0;
 int backfill_interval=30; //initialize here global variable backfill interval to the default value
+List trace_usage = NULL;
 #endif
 
 /*
@@ -279,6 +284,7 @@ inline static void  _usage(char *prog_name);
 static bool         _verify_clustername(void);
 static bool         _wait_for_server_thread(void);
 static void *       _wait_primary_prog(void *arg);
+int 				_read_trace_usage(char *path);
 
 /* main - slurmctld main function, start various threads and process RPCs */
 int main(int argc, char **argv)
@@ -353,7 +359,24 @@ int main(int argc, char **argv)
 	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_multi_curve=")))
 		is_multi_curve = atoi(tmp_ptr + 15);
 	info("Slurm disaggregated validation model bw_threshold %.5f is_multi_curve %d", bw_threshold,
-		     is_multi_curve);	
+		     is_multi_curve);
+	
+	if ((slurmctld_conf.slurmctld_params) && (
+		tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_path="))){
+		trace_usage_path = (tmp_ptr + 17);
+		info("Slurm disaggregated using %s trace usage!", trace_usage_path);
+	}else{
+		trace_usage_path = NULL;
+	}
+	
+
+	if ((slurmctld_conf.slurmctld_params) && (
+		tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_interval=")))
+		trace_usage_interval = (tmp_ptr + 21);
+	info("Slurm disaggregated using %d as trace usage interval!", trace_usage_interval);
+
+	// Read simulation trace usage
+	_read_trace_usage(trace_usage_path);
 
 	for (i = 0; i < 3; i++)
 		fd_set_close_on_exec(i);
@@ -1195,6 +1218,53 @@ perform_global_sync() {
 void
 close_global_sync_sem() {
         if(mutexserver != SEM_FAILED) sem_close(mutexserver);
+}
+
+void destroy_list_usage_item(void *object)
+{
+	job_usage_trace_t *tmp = (job_usage_trace_t *)object;
+	xfree(tmp);
+}
+
+int _read_trace_usage(char *path){
+	int trace_file;
+	job_usage_trace_t *new_job, *scan_ptr;
+	int total_trace_records = 0;
+	ListIterator scan_iterator;
+   
+	//We free the list in _slurmctld_background function
+	if(path == NULL)
+		return 0;
+	
+	trace_usage = list_create(destroy_list_usage_item);
+	
+	trace_file = open(path, O_RDONLY);
+	if (trace_file < 0) {
+		debug5("Error opening file %s", path);
+		return -1;
+	}
+
+	int ret_val=0;
+	new_job = xmalloc(1*sizeof(job_usage_trace_t));
+	while((ret_val=read(trace_file, new_job, sizeof(job_usage_trace_t)))>0){
+		list_append(trace_usage, new_job);
+		new_job = xmalloc(1*sizeof(job_usage_trace_t));
+		total_trace_records++;
+	}
+
+	//debug. Remove later
+	scan_iterator = list_iterator_create(trace_usage);
+	while ((scan_ptr = (struct job_usage_trace_t *) list_next(scan_iterator))) {
+		debug5("%s: jobid %d, node %d, new_mem %lu, id_event %d",
+				__func__,scan_ptr->job_id,scan_ptr->node,
+				(scan_ptr->pn_mim_memory & ~MEM_PER_CPU), scan_ptr->id_event);
+	}	
+	list_iterator_destroy(scan_iterator);
+
+	info("Reading trace usage total: %d records", total_trace_records);
+	close(trace_file);
+
+	return total_trace_records;
 }
 #endif
 
@@ -2409,6 +2479,12 @@ static void *_slurmctld_background(void *no_data)
 
 		END_TIMER2("_slurmctld_background");
 	}
+
+	#ifdef SLURM_SIMULATOR
+	debug3("Freeing trace_usage structure!");
+	list_destroy(trace_usage);
+	trace_usage = NULL;
+	#endif
 
 	debug3("_slurmctld_background shutting down");
 

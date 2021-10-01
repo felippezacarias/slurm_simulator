@@ -2581,6 +2581,26 @@ extern int select_p_job_resume(struct job_record *job_ptr, bool indf_susp)
 	return _add_job_to_res(job_ptr, 2);
 }
 
+extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
+
+	int rc = SLURM_SUCCESS;
+#ifdef SLURM_SIMULATOR
+	job_usage_trace_t *scan_ptr;
+	ListIterator scan_iterator;
+	time_t now = time(NULL);
+
+	//debug. Remove later
+	scan_iterator = list_iterator_create(usage);
+	while ((scan_ptr = (struct job_usage_trace_t *) list_next(scan_iterator))) {
+		debug5("%s: now %u jobid %d, node %d, new_mem %lu, id_event %d",
+				__func__,now,scan_ptr->job_id,scan_ptr->node,
+				(scan_ptr->pn_mim_memory & ~MEM_PER_CPU), scan_ptr->id_event);
+	}	
+	list_iterator_destroy(scan_iterator);
+#endif
+	return rc;
+}
+
 extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 {
 	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
@@ -2888,16 +2908,19 @@ extern int select_p_select_nodeinfo_get(select_nodeinfo_t *nodeinfo,
 
 	switch (dinfo) {
 	case SELECT_NODEDATA_SUBCNT:
-		if (state == NODE_STATE_ALLOCATED)
+		/*if (state == NODE_STATE_ALLOCATED)
 			*uint16 = nodeinfo->alloc_cpus;
 		else
 			*uint16 = 0;
+		*/
+		*uint16 = select_node_usage[*uint16].node_state;
 		break;
 	case SELECT_NODEDATA_PTR:
 		*select_nodeinfo = nodeinfo;
 		break;
 	case SELECT_NODEDATA_MEM_ALLOC:
-		*uint64 = nodeinfo->alloc_memory;
+		//*uint64 = nodeinfo->alloc_memory;
+		*uint64 = select_node_usage[*uint64].alloc_memory;
 		break;
 	case SELECT_NODEDATA_TRES_ALLOC_FMT_STR:
 		*tmp_char = xstrdup(nodeinfo->tres_alloc_fmt_str);
