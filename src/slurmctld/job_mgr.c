@@ -18708,8 +18708,10 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 	list_iterator_destroy(scan_iterator);
 	list_destroy(usage);
-
 	list_delete_all(trace_usage,find_list_usage_item,scan);
+
+	//if rc != 0 deallocate orig_mem_bitmap and node_bitmap
+
 	FREE_NULL_BITMAP(orig_mem_bitmap);
 
 	//call _check_job_status(job_ptr, true, false);

@@ -128,6 +128,15 @@ extern int build_job_resources(job_resources_t *job_resrcs,
 		job_resrcs->core_bitmap = bit_alloc(core_cnt);
 		job_resrcs->core_bitmap_used = bit_alloc(core_cnt);
 	}
+
+	/* FVZ: creating structure to hold remote mem index. better to manipulate
+			when we need to add or remove memory */
+	job_resrcs->remote_mem_index = xmalloc(bitmap_len * sizeof(int *));
+	for(i = 0; i < bitmap_len; i++){
+		job_resrcs->remote_mem_index[i] = xmalloc(1 * sizeof(int *));
+		//the first index mean how many remote mem nodes it has
+		job_resrcs->remote_mem_index[i][0] = 0;
+	}
 	return SLURM_SUCCESS;
 }
 
@@ -418,6 +427,11 @@ extern void free_job_resources(job_resources_t **job_resrcs_pptr)
 		/* FVZ: Cleaning up memory pool bitmap */
 		FREE_NULL_BITMAP(job_resrcs_ptr->memory_pool_bitmap);
 		xfree(job_resrcs_ptr->memory_nodes);
+		if(job_resrcs_ptr->node_bitmap != NULL){
+			for(int i = 0; i < bit_set_count(job_resrcs_ptr->node_bitmap); i++)
+				xfree(job_resrcs_ptr->remote_mem_index[i]);
+		}
+		xfree(job_resrcs_ptr->remote_mem_index);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap_used);
 		xfree(job_resrcs_ptr->cores_per_socket);

@@ -3172,7 +3172,7 @@ static int _eval_memory(struct job_record *job_ptr,
 			if(!test_only)	free_mem -= node_usage[i].alloc_memory;
 
 			//FVZ: Might happen some nodes don't need extra mem. we should skip them
-			while((mem_rem_per_node[idx] <= 0) && (idx < nodes))
+			while((idx < nodes) && (mem_rem_per_node[idx] <= 0))
 				idx++;
 			
 			if(idx == nodes)
@@ -4460,15 +4460,19 @@ alloc_job:
 			if (bit_test(job_res->node_bitmap, i))
 				continue;
 
-			//if(mem_rem_per_node[idx_cpu] <= 0)
-			//	idx_cpu++;
-			
 			//FVZ: Might happen some nodes don't need extra mem. we should skip them
-			while((mem_rem_per_node[idx_cpu] <= 0) && (idx_cpu < nodes))
+			while((idx_cpu < nodes) && (mem_rem_per_node[idx_cpu] <= 0))
 				idx_cpu++;
 			
 			if(idx_cpu == nodes)
 				break;
+
+			/* FVZ: increasing the size of the array holding the memory indexes
+					the first one indicates the number of remote memory nodes */
+			job_res->remote_mem_index[idx_cpu][0]++;
+			j = job_res->remote_mem_index[idx_cpu][0];
+			job_res->remote_mem_index[idx_cpu] = xrealloc(job_res->remote_mem_index[idx_cpu],(j+1) * sizeof(int *));
+			job_res->remote_mem_index[idx_cpu][j] = i;
 
 			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
@@ -4485,8 +4489,9 @@ alloc_job:
 				mem_rem_per_node[idx_cpu] = 0;
 			}
 
-			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
-					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,idx_cpu,mem_rem_per_node[idx_cpu]);
+			info("SDDEBUG: %s job_id %u node[%d] %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
+					__func__,job_ptr->job_id,j,select_node_record[i].node_ptr->name,job_res->remote_mem_index[idx_cpu][j],
+					job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,idx_cpu,mem_rem_per_node[idx_cpu]);
 		}
 	}
 	
