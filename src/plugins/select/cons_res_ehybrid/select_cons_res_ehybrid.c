@@ -2581,12 +2581,275 @@ extern int select_p_job_resume(struct job_record *job_ptr, bool indf_susp)
 	return _add_job_to_res(job_ptr, 2);
 }
 
+
+int* _get_mem_resource_idx(struct job_record *job_ptr, int node, int *cpu_mem_idx, int *cpu_bit_idx){
+	struct job_resources *job = job_ptr->job_resrcs;
+	int  i, j, idx_mem, idx_cpu, first_bit, last_bit;
+	int *remote_mem_idx;
+	int *mem_index = NULL;
+
+	remote_mem_idx = job->remote_mem_index[node];
+
+	if(remote_mem_idx[0])
+		mem_index = xmalloc((remote_mem_idx[0])*sizeof(int));
+	
+	first_bit = bit_ffs(job->memory_pool_bitmap);
+	if (first_bit != -1)
+		last_bit  = bit_fls(job->memory_pool_bitmap);
+	else
+		last_bit = first_bit - 1;
+	
+	for (i = first_bit, j = 0, idx_mem = -1, idx_cpu = -1; i <= last_bit; i++) {
+		if (!bit_test(job->memory_pool_bitmap, i))
+			continue;
+		
+		idx_mem++;
+
+		//assuming it will be sorted by bitmap idx
+		//if the node does not have remote mem, we return null
+		if((mem_index) && 
+			(remote_mem_idx[j+1] == i))
+			mem_index[j++] = idx_mem;
+
+		if (!bit_test(job->node_bitmap, i))
+			continue;
+		
+		idx_cpu++;
+
+		if(idx_cpu == node){
+			*cpu_mem_idx = idx_mem;
+			*cpu_bit_idx = i;
+		}
+	}
+
+	return mem_index;
+}
+
+/* FVZ: return the total mem allocated by each compute node, including its remote mem */
+uint64_t _total_allocated(struct job_resources *job, int node, int cpu_mem_idx, int *mem_index){
+	uint64_t total_allocated = 0;
+	
+	total_allocated = job->memory_allocated[cpu_mem_idx];
+	for(int i = 0; i < job->remote_mem_index[node][0] && mem_index; i++)
+		total_allocated += job->memory_allocated[mem_index[i]];
+	
+	return total_allocated;
+}
+
+int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem, 
+						 int cpu_mem_idx, int cpu_bit, int *mem_index){
+	struct node_use_record *node_usage = select_node_usage;
+	struct node_res_record *node_record = select_node_record;
+	struct job_resources *job = job_ptr->job_resrcs;
+	uint64_t orig_allocated, to_allocate, to_decrease, remote_allocated;
+	int rem, i, j, idx_mem, cores = job->cpus[node];
+	int rc = SLURM_SUCCESS, cnt_mem_nodes, *remote_mem_idx;
+
+	remote_mem_idx = job->remote_mem_index[node];
+	cnt_mem_nodes  = remote_mem_idx[0];
+
+	orig_allocated = _total_allocated(job,node,cpu_mem_idx,mem_index);
+	to_allocate = new_mem*cores;
+	to_decrease = orig_allocated - to_allocate;
+
+	rem = orig_allocated - job->memory_allocated[cpu_mem_idx];
+	info("SDDEBUG: %s compute_node job_id %u node %s remote_memory_allocated %lu to_decrease %lu local_mem %lu",
+				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+				rem,to_decrease,job->memory_allocated[cpu_mem_idx]);
+
+	if(rem){
+		//We going from the last added remote memory to the earlier
+		//we could improve later removing the one with the lowest mem
+		for(j=cnt_mem_nodes-1;j>=0;j--){
+			//index to access plugin resource. idx 0 is for the number of remote nodes
+			i = remote_mem_idx[j+1];
+			//mem index on job resource struct
+			idx_mem = mem_index[j];
+
+			//How much the current cpu node allocate in this mem node
+			remote_allocated = job->memory_allocated[idx_mem];
+
+			//we check if another mem node was used
+			rem = rem - ((int)remote_allocated);
+
+			if(remote_allocated < to_decrease){
+				job->memory_allocated[idx_mem] -= remote_allocated;
+				to_decrease -= remote_allocated;
+				node_usage[i].alloc_memory -= remote_allocated;
+			}
+			else{
+				job->memory_allocated[idx_mem] -= to_decrease;
+				node_usage[i].alloc_memory -= to_decrease;
+				to_decrease = 0;
+			}
+
+			info("SDDEBUG: %s memory_node job_id %u node %s remote_allocated %s remote_memory_allocated %lu to_decrease %lu node_usage %lu cpus %u rem %d",
+						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+						node_record[i].node_ptr->name,remote_allocated,to_decrease,job->memory_allocated[idx_mem],cores,rem);
+
+			if(rem == 0 || to_decrease == 0)
+				break;
+		}
+	}
+
+	// I don't think that will happen in our simulation, because we won't allow.
+	// But we may check if to_decrease > local_mem
+	if(to_decrease){
+		// We finished with the memory nodes for this node
+		// now we remove local memory
+		job->memory_allocated[cpu_mem_idx] -= to_decrease;
+		node_usage[cpu_bit].alloc_memory -= to_decrease;
+		to_decrease = 0;
+		info("SDDEBUG: %s memory_compute_node job_id %u node %s remote_mem_node %s to_decrease %lu node_usage %lu cpus %u rem %d",
+			__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+			node_record[cpu_bit].node_ptr->name,to_decrease,job->memory_allocated[cpu_mem_idx],cores,rem);
+	}
+
+	return rc;
+}
+
+void extract_mem_node_job_resources(struct job_record *job_ptr, int node, 
+						 int cpu_mem_idx, int cpu_bit, int *mem_index){
+	struct node_use_record *node_usage = select_node_usage;
+	struct job_resources *job = job_ptr->job_resrcs;
+	struct node_record *node_ptr;
+	bitstr_t *orig_mem_bitmap = NULL;
+	uint64_t *memory_allocated, *memory_used;
+	uint32_t orig_mem_nhosts;
+	int *remote_mem_idx = NULL, cnt_mem_nodes;
+	int idx_mem, first_bit, last_bit;
+	int i, j, cnt;
+	bool sort = false;
+
+
+	orig_mem_nhosts = job->memory_nhosts;
+	orig_mem_bitmap = bit_copy(job->memory_pool_bitmap);
+
+	remote_mem_idx = job->remote_mem_index[node];
+	cnt_mem_nodes  = remote_mem_idx[0];
+
+	for(j=cnt_mem_nodes-1, cnt=0;j>=0;j--){
+		//index to access plugin resource
+		i = remote_mem_idx[j+1];
+		//mem index on job resource struct
+		idx_mem = mem_index[j];
+		
+		debug5("SDDEBUG: %s job_id %u node %s node_usage %u job-mem_allocated[%d] %u",
+			__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,node_usage[i].alloc_memory,idx_mem,job->memory_allocated[idx_mem]);
+		if(job->memory_allocated[idx_mem] == 0){
+			sort = true;
+			cnt++;
+			bit_clear(job->memory_pool_bitmap, i);
+			if (node_usage[i].node_state >=
+					job->node_req) {
+					node_usage[i].node_state -=
+						job->node_req;
+			} else {
+					node_ptr = node_record_table_ptr + i;
+					error("%s: %s: node_state mis-count (%pJ job_cnt:%u node:%s node_cnt:%u)",
+						plugin_type, __func__, job_ptr,
+						job->node_req, node_ptr->name,
+						node_usage[i].node_state);
+					node_usage[i].node_state =
+						NODE_CR_AVAILABLE;
+			}
+		}
+	}
+	
+	if(cnt){
+		debug5("SDDEBUG: %s job_id %u cnt %d cnt_mem_nodes %d",
+			__func__,job_ptr->job_id,cnt,cnt_mem_nodes);
+		remote_mem_idx[0]-=cnt;
+		if(remote_mem_idx[0]){
+			job->remote_mem_index[node] = xmalloc(remote_mem_idx[0] * sizeof(int *));
+			job->remote_mem_index[node][0] = remote_mem_idx[0];
+			for(j=1;j<remote_mem_idx[0];j++){
+				job->remote_mem_index[node][j] = remote_mem_idx[j];
+			}
+		}else{
+			job->remote_mem_index[node] = xmalloc(1 * sizeof(int *));
+			//the first index mean how many remote mem nodes it has
+			job->remote_mem_index[node][0] = 0;
+		}
+
+		xfree(remote_mem_idx);
+	}
+	
+
+	//since we remove nodes, we hace to sort again job_resources structure
+	if(sort){
+		xfree(job->memory_nodes);
+		job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
+		job->memory_nhosts     = bit_set_count(job->memory_pool_bitmap);
+
+		//for loop to shrink memory_allocated array and copy the values.
+		memory_allocated = xmalloc(job->memory_nhosts * sizeof(uint64_t));
+		memory_used      = xmalloc(job->memory_nhosts * sizeof(uint64_t));
+		for(i = 0, j = 0; i < orig_mem_nhosts; i++){
+			if(job->memory_allocated[i]==0)
+				continue;
+			memory_allocated[j] = job->memory_allocated[i];
+			memory_used[j] = job->memory_used[i];
+			j++;
+		}
+		
+		xfree(job->memory_allocated);
+		xfree(job->memory_used);
+
+		job->memory_allocated = memory_allocated;
+		job->memory_used = memory_used;
+	}
+	
+	info("SDDEBUG: %s job_id %u orig_mem_nhosts %u new_mem_nhosts %u sort %d mem_hosts %s",
+		__func__,job_ptr->job_id,orig_mem_nhosts,bit_set_count(job->memory_pool_bitmap),sort,job->memory_nodes);
+
+	FREE_NULL_BITMAP(orig_mem_bitmap);
+}
+
+int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t new_mem){
+	struct job_resources *job = job_ptr->job_resrcs;
+	uint64_t total_allocated, mem_per_cpu;
+	int cores, cpu_mem_idx, cpu_bit_idx, *mem_index;
+	int rc = SLURM_SUCCESS;
+
+	/* FVZ: I'm assuming the memory requested was always per core */
+	//get node total mem, divide by cores.
+	//if new_mem is lower we decrease, otherwise we increase
+	cores = job->cpus[node];
+	mem_index = _get_mem_resource_idx(job_ptr,node,&cpu_mem_idx, &cpu_bit_idx);
+
+	total_allocated = _total_allocated(job,node,cpu_mem_idx,mem_index);
+
+	//previous mem_per_cpu allocated
+	mem_per_cpu = total_allocated/cores;	
+
+	//improve later
+	if(mem_per_cpu == new_mem){
+		xfree(mem_index);
+		return rc;
+	}
+
+	if(mem_per_cpu > new_mem){
+		rc = _decrease_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index);
+		extract_mem_node_job_resources(job_ptr,node,cpu_mem_idx,cpu_bit_idx,mem_index);
+	}
+	else{
+		//_increase_mem_sim_job();
+		printf("expand");
+	}
+	
+	xfree(mem_index);
+	return rc;		
+}
+
 extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 
 	int rc = SLURM_SUCCESS;
 #ifdef SLURM_SIMULATOR
 	job_usage_trace_t *scan_ptr;
 	ListIterator scan_iterator;
+	uint64_t pn_min_memory;
+	int i, nodes;
 	time_t now = time(NULL);
 
 	//debug. Remove later
@@ -2597,53 +2860,69 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 				(scan_ptr->pn_mim_memory & ~MEM_PER_CPU), scan_ptr->id_event);
 	}	
 	list_iterator_destroy(scan_iterator);
+
+	/* FVZ: if the node is -1, we know it will be for all nodes */ 
+	// we need to fix any error
+	scan_ptr = (struct job_usage_trace_t *) list_peek(usage);
+	if(scan_ptr->node == -1){		
+		nodes = bit_set_count(job_ptr->node_bitmap);
+		pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
+		for(i = 0; i < nodes; i++)
+			_update_node_mem_sim_usage(job_ptr,i,pn_min_memory);
+	}
+	else{
+		scan_iterator = list_iterator_create(usage);
+		while ((scan_ptr = (struct job_usage_trace_t *) list_next(scan_iterator))) {
+			//call func for each node
+			pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
+			_update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory);
+		}	
+		list_iterator_destroy(scan_iterator);
+	}
+
 #endif
 	return rc;
 }
 
 extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
 {
-	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
-	uint64_t min_cpus, memory, mem_tot, local = 0;
+	struct job_resources *job = job_ptr->job_resrcs;
+	uint64_t orig_mem_per_cpu = job_ptr->details->pn_min_memory;
+	uint64_t memory, local = 0, total_allocated = 0, mem_per_cpu = 0;
 	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
-	uint16_t cpus;
+	uint32_t cores;
 	double remote_ratio;
-	int idx_mem = 0, idx_cpu = 0, i, first, last;
+	int cpu_mem_idx, cpu_bit_idx, *mem_index;
 
 	xassert(job_ptr);
 
-	min_cpus = MAX(job_ptr->details->min_cpus, nodes);
-
-	mem_tot = (min_cpus * mem_per_cpu);
-
-
-	first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
-	if (first != -1)
-		last  = bit_fls(job_ptr->job_resrcs->memory_pool_bitmap);
-	else
-		last = first - 1;
+	orig_mem_per_cpu = (orig_mem_per_cpu &= (~MEM_PER_CPU));
 	
-	for (i = first; i <= last; i++) {
-		//If the memory node and cpu node overlaps we count as local
-		if (!bit_test(job_ptr->job_resrcs->memory_pool_bitmap, i))			
-			continue;
+	for (int i = 0; i < nodes; i++) {
+		cores = job->cpus[i];		
+		cpu_mem_idx = cpu_bit_idx = 0;
 
-		memory = job_ptr->job_resrcs->memory_allocated[idx_mem];
-		idx_mem++;
+		mem_index = _get_mem_resource_idx(job_ptr,i,&cpu_mem_idx, &cpu_bit_idx);
 
-		if(!bit_test(job_ptr->job_resrcs->node_bitmap, i))
-			continue;
+		memory = _total_allocated(job,i,cpu_mem_idx,mem_index);
 
-		cpus = job_ptr->job_resrcs->cpus[idx_cpu];
+		total_allocated += memory;
+		local += job->memory_allocated[cpu_mem_idx];
 
-		local += MIN(memory,(cpus*mem_per_cpu));
-		idx_cpu++;
-
+		//previous mem_per_cpu allocated
+		mem_per_cpu = MAX(mem_per_cpu,memory/cores);
+		
+		xfree(mem_index);
 	}
 
-	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u min_cpus=%u mem_per_cpu=%u nodes=%u local/tot=%.5f",__func__,job_ptr->job_id,local,mem_tot,min_cpus,mem_per_cpu,nodes,((double)local/(double)mem_tot));
+	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u (orig/max)_mem_per_cpu=(%u/%u) nodes=%u local/tot=%.5f",
+			__func__,job_ptr->job_id,local,total_allocated,orig_mem_per_cpu,
+			mem_per_cpu,nodes,((double)local/(double)total_allocated));
 
-	remote_ratio = 1.0 - ((double)local/(double)mem_tot);
+	remote_ratio = 1.0 - ((double)local/(double)total_allocated);
+
+	//new job min_memory will be the max among all nodes
+	job_ptr->details->pn_min_memory = (mem_per_cpu | MEM_PER_CPU);
 
 	return (remote_ratio);
 }

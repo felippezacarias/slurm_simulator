@@ -202,6 +202,7 @@ pthread_cond_t assoc_cache_cond = PTHREAD_COND_INITIALIZER;
 /* FVZ: ... */
 double bw_threshold;
 int is_multi_curve;
+int request_cap;
 char *trace_usage_path = NULL;
 int	trace_usage_interval = TRACE_USAGE_INTERVAL;
 
@@ -350,13 +351,18 @@ int main(int argc, char **argv)
 	if (!test_config)
 		_kill_old_slurmctld();
 
-    total_log_jobs= *trace_recs_end_sim; /* ANA: shared memory variable stored in a global variable, as it will not be changed by another process, to avoid accessing shared memory every time. */
+	/* ANA: shared memory variable stored in a global variable, 
+	 * as it will not be changed by another process, 
+	 * to avoid accessing shared memory every time. */
+    total_log_jobs= *trace_recs_end_sim; 
 	/* FVZ: reading the parameters for the disaggregated arch */
 	bw_threshold = 0.5;
 	is_multi_curve = 1;
-	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "bw_threshold=")))
+	if ((slurmctld_conf.slurmctld_params) &&
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "bw_threshold=")))
 			bw_threshold = atof(tmp_ptr + 13);
-	if ((slurmctld_conf.slurmctld_params) && (tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_multi_curve=")))
+	if ((slurmctld_conf.slurmctld_params) &&
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_multi_curve=")))
 		is_multi_curve = atoi(tmp_ptr + 15);
 	info("Slurm disaggregated validation model bw_threshold %.5f is_multi_curve %d", bw_threshold,
 		     is_multi_curve);
@@ -367,13 +373,25 @@ int main(int argc, char **argv)
 		info("Slurm disaggregated using %s trace usage!", trace_usage_path);
 	}else{
 		trace_usage_path = NULL;
-	}
-	
+	}	
 
-	if ((slurmctld_conf.slurmctld_params) && (
-		tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_interval=")))
+	/* FVZ: reading the parameters for the disaggregated trace usage test */
+	if ((slurmctld_conf.slurmctld_params) &&
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_interval=")))
 		trace_usage_interval = (tmp_ptr + 21);
 	info("Slurm disaggregated using %d as trace usage interval!", trace_usage_interval);
+
+	if ((slurmctld_conf.slurmctld_params) && 
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "request_cap="))){
+		request_cap = atoi(tmp_ptr + 12);
+		if ((request_cap < 0) || (request_cap >= 100)) {
+			fatal("Invalid ControllerParameters request_cap: %d",
+					request_cap);
+		}		
+	}else{
+		request_cap = 0;
+	}
+	info("Slurm disaggregated applying %d%% cap on memory requests!", request_cap);	
 
 	// Read simulation trace usage
 	_read_trace_usage(trace_usage_path);

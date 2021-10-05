@@ -3950,7 +3950,8 @@ void make_node_idle(struct node_record *node_ptr,
 	time_t now = time(NULL);
 	bitstr_t *node_bitmap = NULL;
 
-	debug5("SDDEBUG: %s job_id %u name %s",__func__,job_ptr->job_id,node_ptr->name);
+	debug5("SDDEBUG: %s job %pJ name %s node_cnt %u run_job_cnt %u comp_job_cnt %u",
+		__func__,job_ptr,node_ptr->name,job_ptr->node_cnt,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
 
 	if (job_ptr) {
 		if (job_ptr->node_bitmap_cg){
@@ -4041,8 +4042,8 @@ void make_node_idle(struct node_record *node_ptr,
 		}
 	}
 
-	debug5("SDDEBUG: %s job_id %u node %s run_job_cnt %u comp_job_cnt %u",
-			__func__,job_ptr->job_id,node_ptr->name,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
+	debug5("SDDEBUG: %s job %pJ node %s node_cnt %u run_job_cnt %u comp_job_cnt %u",
+			__func__,job_ptr,node_ptr->name,job_ptr->node_cnt,node_ptr->run_job_cnt,node_ptr->comp_job_cnt);
 
 	node_flags = node_ptr->node_state & NODE_STATE_FLAGS;
 	if (IS_NODE_DOWN(node_ptr)) {
@@ -4076,7 +4077,7 @@ void make_node_idle(struct node_record *node_ptr,
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
 			make_node_avail(inx);
 	} else {
-		debug5("SDDEBUG: %s job_id %u node %s set to idle",__func__,job_ptr->job_id,node_ptr->name);
+		debug5("SDDEBUG: %s job %pJ node %s set to idle",__func__,job_ptr,node_ptr->name);
 		node_ptr->node_state = NODE_STATE_IDLE | node_flags;
 		if (!IS_NODE_NO_RESPOND(node_ptr) &&
 		     !IS_NODE_FAIL(node_ptr) && !IS_NODE_DRAIN(node_ptr))
