@@ -413,7 +413,8 @@ extern void allocate_nodes(struct job_record *job_ptr)
 
 	/* FVZ: Dealing with memory nodes */
 	debug5("SDDEBUG: %s job_id %u - nodes %u memory_nodes %u memory_pool nodes %s share %u job_nodes %u",
-			__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts,job_ptr->job_resrcs->memory_nhosts,job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res,job_ptr->node_cnt);
+			__func__,job_ptr->job_id,job_ptr->job_resrcs->nhosts,job_ptr->job_resrcs->memory_nhosts,
+			job_ptr->job_resrcs->memory_nodes,job_ptr->details->share_res,job_ptr->node_cnt);
 	for (i = 0, node_ptr = node_record_table_ptr; i < node_record_count;
 	     i++, node_ptr++) {
 		if (!(bit_test(job_ptr->node_bitmap, i) || 

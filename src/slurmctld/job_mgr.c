@@ -18646,8 +18646,6 @@ extern void send_job_warn_signal(struct job_record *job_ptr, bool ignore_time)
 
 #ifdef SLURM_SIMULATOR
 
-//int _update_resize_sim_job(List usage){}
-
 static int _find_entry(uint32_t x, void *key)
 {
 	uint32_t entry = (uint32_t) x;
@@ -18694,13 +18692,14 @@ void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
 int _enforce_trace_usage(struct job_record *job_ptr){
 	struct job_record *job_scan_ptr;
 	struct node_record *node_ptr;
+	struct job_resources *job = job_ptr->job_resrcs;
 	job_usage_trace_t *scan;
-	List usage, update_jobs;
-	ListIterator scan_iterator;
-	bitstr_t *orig_mem_bitmap = NULL;
+	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
 	uint64_t orig_pn_min_memory;
 	int rc = SLURM_SUCCESS, id_event, job_id;
 	int i, first_bit, last_bit;
+	List usage, update_jobs;
+	ListIterator scan_iterator;
 	time_t now = time(NULL);
 
 	scan_iterator = list_iterator_create(trace_usage);
@@ -18739,7 +18738,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 			__func__,job_ptr->job_id,list_count(usage));
 
 	
-	orig_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+	expand_bitmap 	= bit_copy(job->memory_pool_bitmap);
+	decrease_bitmap = bit_copy(job->memory_pool_bitmap);
 	orig_pn_min_memory = job_ptr->details->pn_min_memory;
 	last_job_update = now;
 
@@ -18754,28 +18754,64 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	list_destroy(usage);
 	list_delete_all(trace_usage,find_list_usage_item,scan);
 
-	//if rc != 0 deallocate orig_mem_bitmap and node_bitmap
-	//call make_node_idle using the diff between
-	//orig_mem_bitmap and details_ptr->memory_bitmap
-	bit_and_not(orig_mem_bitmap,job_ptr->job_resrcs->memory_pool_bitmap);
-	//it will force make_node_idle to update job-node_cnt
-	job_ptr->node_bitmap_cg = orig_mem_bitmap;
-	first_bit = bit_ffs(orig_mem_bitmap);
-	if (first_bit != -1)
-		last_bit  = bit_fls(orig_mem_bitmap);
-	else
-		last_bit = first_bit - 1;
 
-	for (i = first_bit; i <= last_bit; i++) {
-		if (!bit_test(orig_mem_bitmap, i))
-			continue;
-		node_ptr = node_record_table_ptr + i;
-		make_node_idle(node_ptr,job_ptr);
+	if(rc){
+		debug5("%s handle error here!",__func__);
+		return rc;
 	}
-	debug5("%s after make_node_idle idle_nodes %d",__func__,bit_set_count(idle_node_bitmap));
-	
+	//if rc != 0 deallocate decrease_bitmap and node_bitmap
+	//call make_node_idle using the diff between
+	//decrease_bitmap and details_ptr->memory_bitmap
+	bit_and_not(decrease_bitmap,job->memory_pool_bitmap);
+	if(bit_set_count(decrease_bitmap)){
+		//it will force make_node_idle to update job-node_cnt
+		job_ptr->node_bitmap_cg = decrease_bitmap;
+		first_bit = bit_ffs(decrease_bitmap);
+		if (first_bit != -1)
+			last_bit  = bit_fls(decrease_bitmap);
+		else
+			last_bit = first_bit - 1;
+
+		for (i = first_bit; i <= last_bit; i++) {
+			if (!bit_test(decrease_bitmap, i))
+				continue;
+			node_ptr = node_record_table_ptr + i;
+			make_node_idle(node_ptr,job_ptr);
+		}
+		debug5("%s after make_node_idle idle_nodes %d",
+				__func__,bit_set_count(idle_node_bitmap));
+		FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
+		decrease_bitmap = NULL;
+	}
+
+	aux = bit_copy(expand_bitmap);
+	bit_or(expand_bitmap,job->memory_pool_bitmap);
+	bit_and_not(expand_bitmap,aux);
+	FREE_NULL_BITMAP(aux);
+
+	if(bit_set_count(expand_bitmap)){
+		first_bit = bit_ffs(expand_bitmap);
+		if (first_bit != -1)
+			last_bit  = bit_fls(expand_bitmap);
+		else
+			last_bit = first_bit - 1;
+
+		for (i = first_bit; i <= last_bit; i++) {
+			if (!bit_test(expand_bitmap, i))
+				continue;
+			node_ptr = node_record_table_ptr + i;
+			make_node_alloc(node_ptr,job_ptr);
+		}
+		debug5("%s after make_node_alloc idle_nodes %d",
+				__func__,bit_set_count(idle_node_bitmap));
+	}
+
+	//important update it
+	job_ptr->node_cnt = bit_set_count(job->memory_pool_bitmap);
 
 	//call update_sim_job
+	//start with the current job
+	//since we updated it
 	update_jobs = list_create(NULL);
 	list_append(update_jobs,job_ptr);
 	//remove or add to jobs_list jobs sharing
@@ -18789,7 +18825,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	//call debug_utilization if necessary
 	
 	list_destroy(update_jobs);
-	FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
+	FREE_NULL_BITMAP(decrease_bitmap);
+	FREE_NULL_BITMAP(expand_bitmap);
 
 	return rc;
 
@@ -18963,7 +19000,7 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 	uint16_t cpus;
 	bool is_sharing = false;
 	int plugin_id = select_get_plugin_id();
-	int mem, nodes, i, first, last, idx = 0;
+	int nodes, i, first, last, idx = 0;
 
 	//if don't ask for exclusive node and is running
 	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {

@@ -2606,6 +2606,7 @@ int* _get_mem_resource_idx(struct job_record *job_ptr, int node, int *cpu_mem_id
 		idx_mem++;
 
 		//assuming it will be sorted by bitmap idx
+		//sorted when adding nodes in _increase_mem_sim_job
 		//if the node does not have remote mem, we return null
 		if((mem_index) && 
 			(remote_mem_idx[j+1] == i))
@@ -2715,7 +2716,7 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 	struct node_record *node_ptr;
 	bitstr_t *orig_mem_bitmap = NULL;
 	uint64_t *memory_allocated, *memory_used;
-	uint32_t orig_mem_nhosts;
+	uint32_t orig_mem_nhosts, memory_nhosts;
 	int *remote_mem_idx = NULL, cnt_mem_nodes;
 	int idx_mem, first_bit, last_bit;
 	int i, j, cnt;
@@ -2761,9 +2762,10 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 			__func__,job_ptr->job_id,cnt,cnt_mem_nodes);
 		remote_mem_idx[0]-=cnt;
 		if(remote_mem_idx[0]){
-			job->remote_mem_index[node] = xmalloc(remote_mem_idx[0] * sizeof(int *));
+			//remember that remote_mem_idx[0] is 1 position. and it is not counted on remote_mem_idx[0] value
+			job->remote_mem_index[node] = xmalloc((remote_mem_idx[0]+1) * sizeof(int *));
 			job->remote_mem_index[node][0] = remote_mem_idx[0];
-			for(j=1;j<remote_mem_idx[0];j++){
+			for(j=1;j<=remote_mem_idx[0];j++){
 				job->remote_mem_index[node][j] = remote_mem_idx[j];
 			}
 		}else{
@@ -2782,9 +2784,10 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 		job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
 		job->memory_nhosts     = bit_set_count(job->memory_pool_bitmap);
 
+		memory_nhosts = bit_set_count(job->memory_pool_bitmap);
 		//for loop to shrink memory_allocated array and copy the values.
-		memory_allocated = xmalloc(job->memory_nhosts * sizeof(uint64_t));
-		memory_used      = xmalloc(job->memory_nhosts * sizeof(uint64_t));
+		memory_allocated = xmalloc(memory_nhosts * sizeof(uint64_t));
+		memory_used      = xmalloc(memory_nhosts * sizeof(uint64_t));
 		for(i = 0, j = 0; i < orig_mem_nhosts; i++){
 			if(job->memory_allocated[i]==0)
 				continue;
@@ -2806,10 +2809,262 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 	FREE_NULL_BITMAP(orig_mem_bitmap);
 }
 
-int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t new_mem){
+bitstr_t* _avail_mem_bitmap(bitstr_t *mem_pool){
+	struct node_use_record *node_usage = select_node_usage;
+	struct node_res_record *node_record = select_node_record;
+	bitstr_t *avail_bitmap;
+	int i, avail, first_bit, last_bit;
+
+	//maybe it could be a problem if the real avail nodes bitmaps
+	//is updated with some node down by the controller. but as it is a simulation
+	//i will not worry about it so much
+	avail_bitmap = bit_copy(mem_pool);
+	bit_set_all(avail_bitmap);
+	bit_and_not(avail_bitmap, mem_pool);
+
+	first_bit = bit_ffs(avail_bitmap);
+	if (first_bit != -1)
+		last_bit  = bit_fls(avail_bitmap);
+	else
+		last_bit = first_bit - 1;
+
+	for (i = first_bit; i <= last_bit; i++) {
+		if (!bit_test(avail_bitmap, i))
+			continue;
+
+		avail = node_record[i].real_memory - 
+				node_usage[i].alloc_memory;
+
+		if(!avail){
+			bit_clear(avail_bitmap,i);
+		}
+	}
+
+	return avail_bitmap;
+}
+
+static int _cmp_int_ascend(const void *a, const void *b)
+{
+	return (*(int*)a - *(int*)b);
+}
+
+static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem, 
+						 int cpu_mem_idx, int cpu_bit, int *mem_index, bitstr_t *new_nodes)
+{
+	int rc = SLURM_SUCCESS;
+	struct node_use_record *node_usage = select_node_usage;
+	struct node_res_record *node_record = select_node_record;
+	struct job_resources *job = job_ptr->job_resrcs;
+	uint64_t orig_allocated, to_allocate, to_increase, rem, avail;
+	uint64_t *memory_allocated, *memory_used;
+	uint32_t old_mem_nhosts;
+	bitstr_t *avail_bitmap = NULL, *tmp_mem_bitmap;
+	int *remote_mem_idx;
+	int *new_allocation = NULL, *new_allocation_id = NULL;
+	int i, j, cnt_mem_nodes, cores = job->cpus[node];
+	int idx_mem, first_bit, last_bit, cnt_avail, cnt_alloc = 0;
+	
+	tmp_mem_bitmap = bit_copy(job->memory_pool_bitmap);
+	old_mem_nhosts = bit_set_count(job->memory_pool_bitmap);
+
+	remote_mem_idx = job->remote_mem_index[node];
+	cnt_mem_nodes  = remote_mem_idx[0];
+
+	orig_allocated = _total_allocated(job,node,cpu_mem_idx,mem_index);
+	to_allocate = new_mem*cores;
+	to_increase = to_allocate - orig_allocated;
+
+	//1) trying to use the local capacity
+	avail = node_record[cpu_bit].real_memory - 
+				node_usage[cpu_bit].alloc_memory;
+
+	info("SDDEBUG: %s compute_node job_id %u node %s to_increase %lu local_avail %d new_mem %lu",
+						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,avail,new_mem);
+
+	if(avail){
+		if(to_increase >= avail){
+			job->memory_allocated[cpu_mem_idx]+=avail;
+			node_usage[cpu_bit].alloc_memory+=avail;
+			to_increase -= avail;
+		}else{
+			job->memory_allocated[cpu_mem_idx]+=to_increase;
+			node_usage[cpu_bit].alloc_memory+=to_increase;
+			to_increase = 0;
+		}
+	}
+
+			
+	//2) using the already allocated remote nodes 
+	for(j=1;j<=cnt_mem_nodes && to_increase;j++){
+		//index to access plugin resource
+		i = remote_mem_idx[j];
+		//mem index on job resource struct
+		idx_mem = mem_index[j-1];
+
+		avail = node_record[i].real_memory - 
+			node_usage[i].alloc_memory;
+
+		info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node %s avail %d to_increase %lu",
+			__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+			node_record[i].node_ptr->name,avail,to_increase);
+
+		if(avail){
+			if(to_increase >= avail){
+				job->memory_allocated[idx_mem]+=avail;
+				node_usage[i].alloc_memory+=avail;
+				to_increase -= avail;
+			}else{
+				job->memory_allocated[idx_mem]+=to_increase;
+				node_usage[i].alloc_memory+=to_increase;
+				to_increase = 0;
+			}
+		}
+	}
+	
+	//3) if to_increase != 0 find new remote nodes
+	avail_bitmap = _avail_mem_bitmap(job->memory_pool_bitmap);
+	cnt_avail = bit_set_count(avail_bitmap);
+	new_allocation = xmalloc(cnt_avail * sizeof(int));
+	memset(new_allocation,0,cnt_avail);
+	new_allocation_id = xmalloc(cnt_avail * sizeof(int));
+	memset(new_allocation_id,0,cnt_avail);
+
+	first_bit = bit_ffs(avail_bitmap);
+	if (first_bit != -1)
+		last_bit  = bit_fls(avail_bitmap);
+	else
+		last_bit = first_bit - 1;
+
+	for (i = first_bit, cnt_alloc = 0; i <= last_bit && to_increase; i++) {
+		if (!bit_test(avail_bitmap, i))
+			continue;
+
+		avail = node_record[i].real_memory - 
+			node_usage[i].alloc_memory;
+
+		if(to_increase >= avail){
+			new_allocation[cnt_alloc] = avail;
+			to_increase -= avail;
+		}else{
+			new_allocation[cnt_alloc] = to_increase;
+			to_increase = 0;
+		}
+		new_allocation_id[cnt_alloc] = i;
+		cnt_alloc++;
+		bit_set(tmp_mem_bitmap,i);
+		bit_clear(avail_bitmap,i);
+		info("SDDEBUG: %s job_id %u adding remote_memory_node %s to node %s avail %d to_increase %lu",
+			__func__,job_ptr->job_id,node_record[i].node_ptr->name,node_record[cpu_bit].node_ptr->name,
+			avail,to_increase);
+	}
+
+	if(to_increase){
+		debug5("SDDEBUG: %s job_id %u cnt_alloc %d not found sufficient nodes to_increase %lu",
+			__func__,job_ptr->job_id,cnt_alloc,to_increase);
+			FREE_NULL_BITMAP(tmp_mem_bitmap);
+		rc = SLURM_ERROR;
+	}
+	else if(cnt_alloc){
+		//3.1) Adding memory nodes index to the job resource structure
+		//	   and rearranging memory_allocated
+		debug5("SDDEBUG: %s job_id %u cnt_alloc %d remote_mem_idx[0] %d",
+			__func__,job_ptr->job_id,cnt_alloc,remote_mem_idx[0]);
+
+
+		cnt_mem_nodes += cnt_alloc;
+
+		//remember that remote_mem_idx[0] is 1 position. and it is not counted on remote_mem_idx[0] value
+		job->remote_mem_index[node] = xmalloc((cnt_mem_nodes+1) * sizeof(int *));
+		job->remote_mem_index[node][0] = cnt_mem_nodes;
+		for(j=1;j<=remote_mem_idx[0];j++){
+			job->remote_mem_index[node][j] = remote_mem_idx[j];
+		}
+		for(i = 0; i < cnt_alloc; i++){
+			job->remote_mem_index[node][j++] = new_allocation_id[i];
+		}
+
+		debug5("SDDEBUG: %s job_id %u cnt_mem_nodes %d j %d",
+			__func__,job_ptr->job_id,cnt_mem_nodes,j);
+
+		//have to sort otherwise remote_mem_idx in job_mgr:2609 fails
+		qsort(&job->remote_mem_index[node][1], cnt_mem_nodes,
+				sizeof (int), _cmp_int_ascend);
+
+		xfree(remote_mem_idx);
+
+		
+		//Reorganizing the memory_allocated structure
+		//for loop to increase memory_allocated array and copy the values.
+		memory_allocated = xmalloc((old_mem_nhosts + cnt_alloc) * sizeof(uint64_t));
+		memory_used      = xmalloc((old_mem_nhosts + cnt_alloc) * sizeof(uint64_t));
+
+		first_bit = bit_ffs(tmp_mem_bitmap);
+		if (first_bit != -1)
+			last_bit  = bit_fls(tmp_mem_bitmap);
+		else
+			last_bit = first_bit - 1;
+
+		for (i = first_bit, j=-1, cnt_alloc=0, idx_mem=0; i <= last_bit; i++) {
+			if (!bit_test(tmp_mem_bitmap, i))
+				continue;
+			
+			j++;
+
+			if (!bit_test(job->memory_pool_bitmap, i)){
+				//call add_job_to_res to change node run_job and state
+				//of the new addded remote nodes
+				memory_allocated[j] 		= new_allocation[cnt_alloc];
+				node_usage[i].alloc_memory += new_allocation[cnt_alloc];
+				node_usage[i].node_state   += job->node_req;
+				cnt_alloc++;
+				bit_set(new_nodes,i);
+			}else{
+				memory_allocated[j] = job->memory_allocated[idx_mem++];
+			}
+			info("SDDEBUG: %s adding new node job_id %u mem_allocated[%d] %lu",
+						__func__,job_ptr->job_id,j,memory_allocated[j]);
+		}
+		
+		FREE_NULL_BITMAP(job->memory_pool_bitmap);
+		job->memory_pool_bitmap = tmp_mem_bitmap;
+		//add memory_allocated array on jobresrc
+		xfree(job->memory_nodes);
+		job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
+		job->memory_nhosts     = bit_set_count(job->memory_pool_bitmap); 
+
+		xfree(job->memory_allocated);
+		xfree(job->memory_used);
+
+		job->memory_allocated = memory_allocated;
+		job->memory_used = memory_used;
+	}
+
+	xfree(new_allocation);
+	xfree(new_allocation_id);
+	FREE_NULL_BITMAP(avail_bitmap);
+	return rc;
+}
+
+void _debug_index(struct job_record *job_ptr, char *where){
+	struct node_res_record *node_record = select_node_record;
+	struct job_resources *job = job_ptr->job_resrcs;
+	int *remote_mem_idx, id;
+
+	for(int i=0; i<bit_set_count(job->node_bitmap);i++){
+		remote_mem_idx = job->remote_mem_index[i];
+		for(int j=1;j<=remote_mem_idx[0];j++){
+			id = remote_mem_idx[j];
+			debug5("%s %s - node %d size %d remote_id[%d] %d - %s",
+			__func__,where,i,remote_mem_idx[0],j,id,node_record[id].node_ptr->name);
+		}
+	}
+}
+
+int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, 
+								uint64_t new_mem, bitstr_t *new_added_nodes){
 	struct job_resources *job = job_ptr->job_resrcs;
 	uint64_t total_allocated, mem_per_cpu;
-	int cores, cpu_mem_idx, cpu_bit_idx, *mem_index;
+	int cores, cpu_mem_idx, cpu_bit_idx, *mem_index = NULL;
 	int rc = SLURM_SUCCESS;
 
 	/* FVZ: I'm assuming the memory requested was always per core */
@@ -2825,20 +3080,26 @@ int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t ne
 
 	//improve later
 	if(mem_per_cpu == new_mem){
-		xfree(mem_index);
+		if(mem_index);
+			xfree(mem_index);
 		return rc;
 	}
+
+	debug5("%s cores %d total_allocated %u mem_per_cpu %d new_mem %u",
+			__func__,cores,total_allocated,mem_per_cpu,new_mem);
 
 	if(mem_per_cpu > new_mem){
 		rc = _decrease_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index);
 		extract_mem_node_job_resources(job_ptr,node,cpu_mem_idx,cpu_bit_idx,mem_index);
 	}
 	else{
-		//_increase_mem_sim_job();
-		printf("expand");
+		//we have to think about the error flow. increase and decrease could be intertwined
+		rc = _increase_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index,new_added_nodes);
 	}
 	
-	xfree(mem_index);
+	if(mem_index)
+		xfree(mem_index);
+
 	return rc;		
 }
 
@@ -2847,10 +3108,18 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	int rc = SLURM_SUCCESS;
 #ifdef SLURM_SIMULATOR
 	job_usage_trace_t *scan_ptr;
+	struct job_resources *job_res = job_ptr->job_resrcs;
+	struct job_details *details = job_ptr->details;
 	ListIterator scan_iterator;
-	uint64_t pn_min_memory;
+	uint64_t pn_min_memory, update_pn_min_memory = 0;
+	bitstr_t *orig_mem_bitmap = NULL, *new_nodes = NULL;
 	int i, nodes;
 	time_t now = time(NULL);
+
+	//keeping a copy in case of error at any point
+	orig_mem_bitmap = bit_copy(job_res->memory_pool_bitmap);
+	new_nodes = bit_copy(job_res->memory_pool_bitmap);
+	bit_clear_all(new_nodes);
 
 	//debug. Remove later
 	scan_iterator = list_iterator_create(usage);
@@ -2865,21 +3134,40 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	// we need to fix any error
 	scan_ptr = (struct job_usage_trace_t *) list_peek(usage);
 	if(scan_ptr->node == -1){		
-		nodes = bit_set_count(job_ptr->node_bitmap);
+		nodes = bit_set_count(job_res->node_bitmap);
 		pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
-		for(i = 0; i < nodes; i++)
-			_update_node_mem_sim_usage(job_ptr,i,pn_min_memory);
+		update_pn_min_memory = MAX(update_pn_min_memory,pn_min_memory);
+		details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
+		for(i = 0; i < nodes; i++){
+			rc = _update_node_mem_sim_usage(job_ptr,i,pn_min_memory,new_nodes);
+			if(rc)
+				break;
+		}
 	}
 	else{
 		scan_iterator = list_iterator_create(usage);
 		while ((scan_ptr = (struct job_usage_trace_t *) list_next(scan_iterator))) {
 			//call func for each node
 			pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
-			_update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory);
+			update_pn_min_memory = MAX(update_pn_min_memory,pn_min_memory);
+			details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
+			rc = _update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory,new_nodes);
+			if(rc)
+				break;
 		}	
 		list_iterator_destroy(scan_iterator);
 	}
 
+	//handle error here for the plugin side
+	if(rc){
+		//new_nodes bitmap will be used to cleanup resources in case of any error.
+		//it will store the new nodes added at some point, but there are not considered
+		//in the controller.
+		debug5("%s implement cleanup for error!",__func__);
+	}	
+
+	FREE_NULL_BITMAP(orig_mem_bitmap);
+	FREE_NULL_BITMAP(new_nodes);
 #endif
 	return rc;
 }
