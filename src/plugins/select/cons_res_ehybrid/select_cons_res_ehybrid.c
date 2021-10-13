@@ -2849,8 +2849,7 @@ static int _cmp_int_ascend(const void *a, const void *b)
 }
 
 static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem, 
-						 int cpu_mem_idx, int cpu_bit, int *mem_index, bitstr_t *new_nodes)
-{
+						 int cpu_mem_idx, int cpu_bit, int *mem_index){
 	int rc = SLURM_SUCCESS;
 	struct node_use_record *node_usage = select_node_usage;
 	struct node_res_record *node_record = select_node_record;
@@ -3017,7 +3016,6 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 				node_usage[i].alloc_memory += new_allocation[cnt_alloc];
 				node_usage[i].node_state   += job->node_req;
 				cnt_alloc++;
-				bit_set(new_nodes,i);
 			}else{
 				memory_allocated[j] = job->memory_allocated[idx_mem++];
 			}
@@ -3045,6 +3043,68 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 	return rc;
 }
 
+void _restore_usage_record(struct job_record *job_ptr, bitstr_t *orig_mem_bitmap,
+				uint64_t *orig_mem_allocated, uint64_t* orig_mem_used){
+	struct node_use_record *node_usage = select_node_usage;
+	struct job_resources *job_res = job_ptr->job_resrcs;
+	uint64_t to_update;
+	int i, j, k, first_bit, last_bit;
+	
+	//this function decreases/increases the memory in already allocated
+	//nodes for this job. Considering increase and decrease func intertwined
+	first_bit = MIN(bit_ffs(orig_mem_bitmap),
+					bit_ffs(job_res->memory_pool_bitmap));
+	if (first_bit != -1)
+		last_bit  = MAX(bit_fls(orig_mem_bitmap),
+						bit_fls(job_res->memory_pool_bitmap));
+	else
+		last_bit = first_bit - 1;
+	
+	for (i = first_bit, j = -1, k = -1; i <= last_bit; i++) {
+		if (!(bit_test(orig_mem_bitmap, i) ||
+			  bit_test(job_res->memory_pool_bitmap, i)))
+			continue;
+
+		if(bit_test(orig_mem_bitmap, i)){
+			j++;
+			if (bit_test(job_res->memory_pool_bitmap, i)){
+				k++;
+				if(orig_mem_allocated[j] > job_res->memory_allocated[k]){
+					to_update = orig_mem_allocated[j] - job_res->memory_allocated[k];
+					node_usage[i].alloc_memory += to_update;
+				}else{
+					to_update = job_res->memory_allocated[k] - orig_mem_allocated[j];
+					node_usage[i].alloc_memory -= to_update;
+				}
+			}else{//removed node on decresing memory
+				node_usage[i].alloc_memory += orig_mem_allocated[j];
+			}
+		}else{//new added node
+			k++;
+			if (node_usage[i].node_state >=
+				job_res->node_req) {
+					node_usage[i].node_state -=
+						job_res->node_req;
+			} else {
+					node_usage[i].node_state =
+						NODE_CR_AVAILABLE;
+			}
+			node_usage[i].alloc_memory -= job_res->memory_allocated[k];
+		}
+	}
+
+	FREE_NULL_BITMAP(job_res->memory_pool_bitmap);
+	job_res->memory_pool_bitmap = orig_mem_bitmap;
+	xfree(job_res->memory_allocated);
+	xfree(job_res->memory_used);
+	job_res->memory_allocated = orig_mem_allocated;
+	job_res->memory_used = orig_mem_used;
+
+	xfree(job_res->memory_nodes);
+	job_res->memory_nodes      = bitmap2node_name(job_res->memory_pool_bitmap);
+	job_res->memory_nhosts     = bit_set_count(job_res->memory_pool_bitmap);
+}
+
 void _debug_index(struct job_record *job_ptr, char *where){
 	struct node_res_record *node_record = select_node_record;
 	struct job_resources *job = job_ptr->job_resrcs;
@@ -3060,8 +3120,7 @@ void _debug_index(struct job_record *job_ptr, char *where){
 	}
 }
 
-int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, 
-								uint64_t new_mem, bitstr_t *new_added_nodes){
+int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t new_mem){
 	struct job_resources *job = job_ptr->job_resrcs;
 	uint64_t total_allocated, mem_per_cpu;
 	int cores, cpu_mem_idx, cpu_bit_idx, *mem_index = NULL;
@@ -3094,7 +3153,7 @@ int _update_node_mem_sim_usage(struct job_record *job_ptr, int node,
 	}
 	else{
 		//we have to think about the error flow. increase and decrease could be intertwined
-		rc = _increase_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index,new_added_nodes);
+		rc = _increase_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index);
 	}
 	
 	if(mem_index)
@@ -3111,15 +3170,37 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	struct job_resources *job_res = job_ptr->job_resrcs;
 	struct job_details *details = job_ptr->details;
 	ListIterator scan_iterator;
-	uint64_t pn_min_memory, update_pn_min_memory = 0;
-	bitstr_t *orig_mem_bitmap = NULL, *new_nodes = NULL;
-	int i, nodes;
+	uint64_t *orig_mem_allocated, *orig_mem_used, orig_mem_nhosts;
+	uint64_t pn_min_memory, orig_pn_min_memory, update_pn_min_memory = 0;
+	bitstr_t *orig_mem_bitmap = NULL;
+	int i, j, nodes, **remote_mem_index;
 	time_t now = time(NULL);
 
 	//keeping a copy in case of error at any point
-	orig_mem_bitmap = bit_copy(job_res->memory_pool_bitmap);
-	new_nodes = bit_copy(job_res->memory_pool_bitmap);
-	bit_clear_all(new_nodes);
+	orig_mem_bitmap    = bit_copy(job_res->memory_pool_bitmap);
+	orig_mem_nhosts    = bit_set_count(job_res->memory_pool_bitmap);
+	nodes			   = bit_set_count(job_res->node_bitmap);
+	orig_pn_min_memory = details->pn_min_memory;
+
+	//keeping a copy from memory allocated before any modification
+	orig_mem_allocated = xmalloc((orig_mem_nhosts) * sizeof(uint64_t));
+	orig_mem_used      = xmalloc((orig_mem_nhosts) * sizeof(uint64_t));
+	for(i=0;i<orig_mem_nhosts;i++){
+		orig_mem_allocated[i] = job_res->memory_allocated[i];
+		orig_mem_used[i] 	  = job_res->memory_used[i];
+	}
+
+	//copy remote_mem_index
+	remote_mem_index = xmalloc(nodes * sizeof(int *));
+	for(i = 0; i < nodes; i++){
+		remote_mem_index[i] = xmalloc((1+job_res->remote_mem_index[i][0]) * sizeof(int *));
+		remote_mem_index[i][0] = job_res->remote_mem_index[i][0];
+		for(j=1;j<=job_res->remote_mem_index[i][0];j++)
+			remote_mem_index[i][j] = job_res->remote_mem_index[i][j];
+	}
+
+	debug5("%s job_id=%u orig_mem_nhosts=%lu orig_pn_min_memory=%lu",
+			__func__,job_ptr->job_id,orig_mem_nhosts,(orig_pn_min_memory & ~MEM_PER_CPU));
 
 	//debug. Remove later
 	scan_iterator = list_iterator_create(usage);
@@ -3134,12 +3215,11 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	// we need to fix any error
 	scan_ptr = (struct job_usage_trace_t *) list_peek(usage);
 	if(scan_ptr->node == -1){		
-		nodes = bit_set_count(job_res->node_bitmap);
 		pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
 		update_pn_min_memory = MAX(update_pn_min_memory,pn_min_memory);
 		details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
 		for(i = 0; i < nodes; i++){
-			rc = _update_node_mem_sim_usage(job_ptr,i,pn_min_memory,new_nodes);
+			rc = _update_node_mem_sim_usage(job_ptr,i,pn_min_memory);
 			if(rc)
 				break;
 		}
@@ -3151,7 +3231,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 			pn_min_memory = (scan_ptr->pn_mim_memory & ~MEM_PER_CPU);
 			update_pn_min_memory = MAX(update_pn_min_memory,pn_min_memory);
 			details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
-			rc = _update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory,new_nodes);
+			rc = _update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory);
 			if(rc)
 				break;
 		}	
@@ -3160,14 +3240,29 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 
 	//handle error here for the plugin side
 	if(rc){
-		//new_nodes bitmap will be used to cleanup resources in case of any error.
-		//it will store the new nodes added at some point, but there are not considered
-		//in the controller.
 		debug5("%s implement cleanup for error!",__func__);
+		//remove new nodes added by the incresing function
+		//also resture the correct values for node_usage when increasing/decreasing mem
+		_restore_usage_record(job_ptr,orig_mem_bitmap,orig_mem_allocated,orig_mem_used);
+		for(i = 0; i < nodes; i++){
+			xfree(job_res->remote_mem_index[i]);
+		}
+		xfree(job_res->remote_mem_index);
+		
+		job_res->remote_mem_index = remote_mem_index;
+		details->pn_min_memory 	  = orig_pn_min_memory;
+
+		return rc;
 	}	
 
+	//removing copy if the execution was SLURM_SUCCESS 
+	xfree(orig_mem_allocated);
+	xfree(orig_mem_used);
+	for(i = 0; i < nodes; i++){
+		xfree(remote_mem_index[i]);
+	}
+	xfree(remote_mem_index);
 	FREE_NULL_BITMAP(orig_mem_bitmap);
-	FREE_NULL_BITMAP(new_nodes);
 #endif
 	return rc;
 }
