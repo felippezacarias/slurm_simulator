@@ -5162,7 +5162,7 @@ typedef struct job_usage_trace {
     int  job_id;
     int  node;
     unsigned long long int  pn_mim_memory;
-    int  id_event;
+    double  id_event_progress;
     struct job_usage_trace *next;
 } job_usage_trace_t;
 

@@ -169,6 +169,7 @@ static uint32_t max_array_size = NO_VAL;
 static bitstr_t *requeue_exit = NULL;
 static bitstr_t *requeue_exit_hold = NULL;
 static bool     validate_cfgd_licenses = true;
+static time_t next_trace_usage_check = 0;
 
 /* Local functions */
 static void _add_job_hash(struct job_record *job_ptr);
@@ -18664,7 +18665,7 @@ int find_list_usage_item(void *object, void *key)
 	job_usage_trace_t *tmp_key = (job_usage_trace_t *)key;
 	
 	return ((tmp->job_id == tmp_key->job_id) &&
-			(tmp->id_event == tmp_key->id_event));
+			(tmp->id_event_progress == tmp_key->id_event_progress));
 }
 
 void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
@@ -18689,6 +18690,85 @@ void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
 	list_iterator_destroy(scan_iterator);
 }
 
+double _get_job_progress(struct job_record *job_ptr){
+	double time_delta = 0.0, time_elapsed;
+	time_t now = time(NULL);
+
+	if(job_ptr->time_delta)
+		time_delta = difftime(now,job_ptr->time_delta);
+
+	//job's progress
+	time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
+
+	return (time_elapsed);
+}
+
+time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_progress){
+	double event_deadline;
+	time_t deadline, now = time(NULL);
+
+	if(job_ptr->time_elapsed)
+		event_deadline = ceil((trace_event_progress - (job_ptr->time_elapsed + ((now-job_ptr->time_delta)*job_ptr->speed)))/job_ptr->speed);
+	else
+		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
+
+	debug5("%s[%lu] job_id=%lu event_deadline=%e time_delta=%e speed=%e time_elapsed=%e event_progress=%e",
+			__func__,now,job_ptr->job_id,event_deadline,job_ptr->time_delta,job_ptr->speed,job_ptr->time_elapsed,trace_event_progress);
+
+	deadline = now + event_deadline;
+
+	return deadline;
+}
+
+void _check_next_trace_usage(){
+	struct job_record *job_ptr = NULL;
+	ListIterator scan_iterator, job_iterator;
+	job_usage_trace_t *scan;	
+	time_t event_time, now = time(NULL);
+
+	job_iterator = list_iterator_create(job_list);
+	
+	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
+		if (!IS_JOB_RUNNING(job_ptr))
+			continue;
+
+		scan = NULL;
+		scan_iterator = list_iterator_create(trace_usage);
+		//find first usage event for this job
+		while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
+			if(scan->job_id != job_ptr->job_id)
+				continue;
+			
+			break;
+		}
+		
+		if(scan == NULL){
+			list_iterator_destroy(scan_iterator);
+			continue;
+		}
+
+		//to deal with finishing jobs
+		if(job_ptr->time_elapsed >= 1.0)
+			continue;
+
+		//calculate when are we going to apply this event, based on the current speed
+		event_time = _get_trace_usage_deadline(job_ptr,scan->id_event_progress);
+
+		if(next_trace_usage_check)
+			next_trace_usage_check = MIN(next_trace_usage_check,event_time);
+		else
+			next_trace_usage_check = event_time;
+			
+
+		list_iterator_destroy(scan_iterator);	
+		
+	}
+	list_iterator_destroy(job_iterator);
+
+	debug5("%s updating next_trace_usage_check to %lu",
+			__func__,next_trace_usage_check);
+}
+
 int _enforce_trace_usage(struct job_record *job_ptr){
 	struct job_record *job_scan_ptr;
 	struct node_record *node_ptr;
@@ -18696,8 +18776,9 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	job_usage_trace_t *scan;
 	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
 	uint64_t orig_pn_min_memory;
-	int rc = SLURM_SUCCESS, id_event, job_id;
+	int rc = SLURM_SUCCESS, id_event_progress, job_id;
 	int i, first_bit, last_bit;
+	double job_progress;
 	List usage, update_jobs;
 	ListIterator scan_iterator;
 	time_t now = time(NULL);
@@ -18705,7 +18786,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	scan_iterator = list_iterator_create(trace_usage);
 	usage = list_create(NULL); // It has to be NULL, because the del func will be in the
 							   // constructor of trace_usage list
-	
+	job_progress = _get_job_progress(job_ptr);
+
 	//find first usage event for this job
 	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
 		if(scan->job_id != job_ptr->job_id)
@@ -18714,28 +18796,32 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		break;
 	}
 	
-	if(scan == NULL){
-		debug5("%s There is no usage event for job %lu",__func__,job_ptr->job_id);
+	if((scan == NULL) ||
+	   (scan->id_event_progress > job_progress)){
+		debug5("%s[%lu] no event for job %lu progress %e",
+				__func__,now,job_ptr->job_id,job_progress);
 		list_iterator_destroy(scan_iterator);
 		list_destroy(usage);
 		return rc;
 	}
 
+	debug5("%s[%lu] event for job %lu progress %e event_progress %e",
+				__func__,now,job_ptr->job_id,job_progress,scan->id_event_progress);
 
 	//append the event on a list, then find the others
 	list_append(usage,scan);
 	job_id   = scan->job_id;
-	id_event = scan->id_event;
+	id_event_progress = scan->id_event_progress;
 
 	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator)) && 
 		  (scan->job_id == job_id) && 
-		  (scan->id_event == id_event)){
+		  (scan->id_event_progress == id_event_progress)){
 
 		list_append(usage,scan);
 	}
 
-	debug5("%s Updating job %lu using %d usage events" ,
-			__func__,job_ptr->job_id,list_count(usage));
+	debug5("%s Current time %lu Updating job %lu using %d usage events" ,
+			__func__,now,job_ptr->job_id,list_count(usage));
 
 	
 	expand_bitmap 	= bit_copy(job->memory_pool_bitmap);
@@ -18746,7 +18832,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	//call the allocation plugin.
 	rc = select_g_usage_resize(job_ptr, usage);
 
-	debug5("%s rc %d after select_g_usage_resize idle_nodes %d",__func__,rc,bit_set_count(idle_node_bitmap));
+	debug5("%s rc %d after select_g_usage_resize idle_nodes %d",
+			__func__,rc,bit_set_count(idle_node_bitmap));
 
 	scan = list_pop(usage);
 
@@ -18822,6 +18909,9 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	}
 	list_iterator_destroy(scan_iterator);
 	
+	// executing function after updating all jobs
+	_check_next_trace_usage();
+
 	//call debug_utilization if necessary
 	
 	list_destroy(update_jobs);
@@ -18836,9 +18926,19 @@ int enforce_trace_usage(){
 	struct job_record *job_ptr = NULL;
 	int rc = SLURM_SUCCESS;
 	ListIterator scan_iterator, job_iterator;
+	time_t now = time(NULL);
+
+	if((next_trace_usage_check == 0) ||
+		(next_trace_usage_check > now)){
+		debug5("%s next_trace_usage_check %lu now %lu",
+				__func__,next_trace_usage_check,now);	
+		return rc;
+	}
+	
+	next_trace_usage_check = 0;
 
 	job_iterator = list_iterator_create(job_list);
-	
+
 	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
 		if (!IS_JOB_RUNNING(job_ptr))
 			continue;
@@ -18852,10 +18952,8 @@ int enforce_trace_usage(){
 
 	}
 	list_iterator_destroy(job_iterator);
-	
-	
+
 	return rc;	
-	
 }
 
 static int _update_sim_job_status(struct job_record *job_ptr){
@@ -19106,7 +19204,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	scale = _compute_scale(job_ptr);
 
 	job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
-	if ((scale == 1.0) && (!completing))
+	//it onl works for a job starting. fix it for resized. when we call a single job per function
+	if ((scale == 1.0) && (!(completing || resized)))
 		job_ptr->time_left = job_ptr->time_min;
 	else
 		job_ptr->time_left    = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
@@ -19152,6 +19251,11 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 					job_scan_ptr->time_left,time_delta,job_scan_ptr->time_min,scale,completing,count_job_scan_ptr);
 		}
 		list_iterator_destroy(job_iterator);
+
+		// update next_usage var every time a job is updated
+		// if it is completing or starting we check here
+		// if it is resize, execute the function after updating all jobs to decrease overhead
+		_check_next_trace_usage();
 	}
 
 	if(completing){

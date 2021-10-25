@@ -7134,13 +7134,11 @@ static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
         debug3("Processing RPC: MESSAGE_SIM_HELPER_CYCLE for %d jobs",
                         helper_msg->total_jobs_ended);
         time_t current_time=time(NULL);
+		
 		//checking trace usage
-		if((current_time-last_trace_usage)>trace_usage_interval){
-			debug5("%s unlocking trace_usage! current_time %lu",__func__,current_time);
-			enforce_trace_usage();
-			last_trace_usage = current_time;
-		}
-          if (get_scheduler_cnt() > 0) {
+		enforce_trace_usage();
+		
+        if (get_scheduler_cnt() > 0) {
                 reset_scheduler_cnt();
 //        if (last_helper_schedule_time==0 ||
 //           (current_time-last_helper_schedule_time)>HELPER_SCHEDULE_PERIOD_S) {

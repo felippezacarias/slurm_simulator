@@ -1273,9 +1273,9 @@ int _read_trace_usage(char *path){
 	//debug. Remove later
 	scan_iterator = list_iterator_create(trace_usage);
 	while ((scan_ptr = (struct job_usage_trace_t *) list_next(scan_iterator))) {
-		debug5("%s: jobid %d, node %d, new_mem %lu, id_event %d",
+		debug5("%s: jobid %d, node %d, new_mem %lu, id_event %f",
 				__func__,scan_ptr->job_id,scan_ptr->node,
-				(scan_ptr->pn_mim_memory & ~MEM_PER_CPU), scan_ptr->id_event);
+				(scan_ptr->pn_mim_memory & ~MEM_PER_CPU), scan_ptr->id_event_progress);
 	}	
 	list_iterator_destroy(scan_iterator);
 
