@@ -274,7 +274,7 @@ static int  _write_data_to_file(char *file_name, char *data);
 static int  _write_data_array_to_file(char *file_name, char **data,
 				      uint32_t size);
 static void _xmit_new_end_time(struct job_record *job_ptr);
-static int _update_sim_job_status(struct job_record *job_ptr);
+static int _update_sim_job_status(struct job_record *job_ptr, uint16_t request_type);
 double _compute_scale(struct job_record *job_ptr);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
@@ -18776,9 +18776,9 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	job_usage_trace_t *scan;
 	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
 	uint64_t orig_pn_min_memory;
-	int rc = SLURM_SUCCESS, id_event_progress, job_id;
+	int rc = SLURM_SUCCESS, job_id;
 	int i, first_bit, last_bit;
-	double job_progress;
+	double job_progress, event_progress;
 	List usage, update_jobs;
 	ListIterator scan_iterator;
 	time_t now = time(NULL);
@@ -18811,13 +18811,12 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	//append the event on a list, then find the others
 	list_append(usage,scan);
 	job_id   = scan->job_id;
-	id_event_progress = scan->id_event_progress;
+	event_progress = scan->id_event_progress;
 
-	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator)) && 
-		  (scan->job_id == job_id) && 
-		  (scan->id_event_progress == id_event_progress)){
-
-		list_append(usage,scan);
+	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){ 
+		  if((scan->job_id == job_id) && 
+		  	 (scan->id_event_progress == event_progress))
+			list_append(usage,scan);
 	}
 
 	debug5("%s Current time %lu Updating job %lu using %d usage events" ,
@@ -18844,6 +18843,10 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 	if(rc){
 		debug5("%s handle error here!",__func__);
+		job_ptr->time_left = 0;
+		FREE_NULL_BITMAP(decrease_bitmap);
+		FREE_NULL_BITMAP(expand_bitmap);
+		_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
 		return rc;
 	}
 	//if rc != 0 deallocate decrease_bitmap and node_bitmap
@@ -18908,12 +18911,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		_check_job_status(job_scan_ptr, false, true);		
 	}
 	list_iterator_destroy(scan_iterator);
-	
-	// executing function after updating all jobs
-	_check_next_trace_usage();
 
-	//call debug_utilization if necessary
-	
 	list_destroy(update_jobs);
 	FREE_NULL_BITMAP(decrease_bitmap);
 	FREE_NULL_BITMAP(expand_bitmap);
@@ -18946,17 +18944,24 @@ int enforce_trace_usage(){
 		//check if the job has usage record.
 		//get the first. Check if there is more with the same jobid and event_id
 		//enforce mem calling function in job_mgr.
-		//if returns erro we kill the job.
+		//if returns error we kill the job.
 		//remove event from the trace_usage list
 		_enforce_trace_usage(job_ptr);
 
 	}
 	list_iterator_destroy(job_iterator);
 
+	// executing function after updating all jobs
+	_check_next_trace_usage();
+
+	//call debug_utilization if necessary
+
+	enforce_trace_usage();
+
 	return rc;	
 }
 
-static int _update_sim_job_status(struct job_record *job_ptr){
+static int _update_sim_job_status(struct job_record *job_ptr, uint16_t request_type){
 	sim_job_msg_t req;
 	slurm_msg_t   req_msg, resp_msg;
 	char* this_addr;
@@ -18969,7 +18974,7 @@ static int _update_sim_job_status(struct job_record *job_ptr){
 	req.job_id       = job_ptr->job_id;
 	req.duration     = job_ptr->time_left;
 	req.wclimit		 = 0;
-	req_msg.msg_type = REQUEST_UPDATE_SIM_JOB;
+	req_msg.msg_type = request_type;
 	req_msg.data     = &req;
 	req_msg.protocol_version = SLURM_PROTOCOL_VERSION;
 	this_addr = "localhost";
@@ -19216,7 +19221,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 
 	/* FVZ: If it is not completing the job will run in contention
 	/* we need to update the simulator's expect time to finish with the new time_left */
-	if(!completing) _update_sim_job_status(job_ptr);
+	if(!completing) _update_sim_job_status(job_ptr,REQUEST_UPDATE_SIM_JOB);
 
 	if(!resized){
 		job_iterator = list_iterator_create(job_ptr->job_share);
@@ -19244,7 +19249,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 			job_scan_ptr->time_left    = ceil((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
 			job_scan_ptr->time_delta = now;
 
-			_update_sim_job_status(job_scan_ptr);
+			_update_sim_job_status(job_scan_ptr,REQUEST_UPDATE_SIM_JOB);
 			count_job_scan_ptr = list_count(job_scan_ptr->job_share);
 			info("SDDEBUG: %s job_id=%u [xsharing_nodes] being updated elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d list_count=%d\n",
 					__func__,job_scan_ptr->job_id, job_scan_ptr->time_elapsed, job_scan_ptr->speed,

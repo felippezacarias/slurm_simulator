@@ -474,6 +474,12 @@ slurmd_req(slurm_msg_t *msg)
 		simulator_rpc_update_job(msg);
 		#endif
 		break;
+	case REQUEST_KILL_SIM_JOB:
+		#ifdef SLURM_SIMULATOR
+		info("SDDEBUG: Processing RPC: REQUEST_KILL_SIM_JOB");
+		simulator_rpc_update_job(msg);
+		#endif
+		break;
 	case REQUEST_NETWORK_CALLERID:
 		debug2("Processing RPC: REQUEST_NETWORK_CALLERID");
 		_rpc_network_callerid(msg);
@@ -679,6 +685,7 @@ simulator_rpc_update_job(slurm_msg_t *msg)
 						__func__,req->job_id, (node_temp->when), (req->duration+now), 
 						head_simulator_event->when,head_simulator_event->job_id);
 				node_temp->when = now + req->duration;	
+				node_temp->type = msg->msg_type;
 			}
 			else{
 				rc = simulator_update_event_info(req);

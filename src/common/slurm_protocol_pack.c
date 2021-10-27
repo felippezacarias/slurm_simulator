@@ -1231,6 +1231,10 @@ pack_msg(slurm_msg_t const *msg, Buf buffer)
 		/*  FVZ: pack function for update simjob info rpc. */
 		_pack_sim_job_msg((sim_job_msg_t *)msg->data, buffer);
 		break;
+	case REQUEST_KILL_SIM_JOB:
+		/*  FVZ: pack function for update simjob info rpc. */
+		_pack_sim_job_msg((sim_job_msg_t *)msg->data, buffer);
+		break;
 	case REQUEST_ABORT_JOB:
 	case REQUEST_KILL_PREEMPTED:
 	case REQUEST_KILL_TIMELIMIT:
@@ -1955,6 +1959,10 @@ unpack_msg(slurm_msg_t * msg, Buf buffer)
 		_unpack_sim_helper_msg((sim_helper_msg_t **)&msg->data, buffer);
 		break;
 	case REQUEST_UPDATE_SIM_JOB:
+		/*  FVZ: unpack function for update simjob info rpc. */
+		_unpack_sim_job_msg((sim_job_msg_t **)&msg->data, buffer);
+		break;
+	case REQUEST_KILL_SIM_JOB:
 		/*  FVZ: unpack function for update simjob info rpc. */
 		_unpack_sim_job_msg((sim_job_msg_t **)&msg->data, buffer);
 		break;

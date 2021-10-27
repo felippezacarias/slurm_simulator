@@ -761,6 +761,8 @@ _simulator_helper(void *arg)
 			int status = 0; //0 means success
 			//If it is necessary a hardlimit it is already done
 			//if(aux->when > aux->hardwhen) status = JOB_FAILED;
+			if(aux->type == REQUEST_KILL_SIM_JOB) 
+				status = SIG_OOM;
 			event_jid = aux->job_id;
 			aux->next = head_sim_completed_jobs;
 			head_sim_completed_jobs = aux;
