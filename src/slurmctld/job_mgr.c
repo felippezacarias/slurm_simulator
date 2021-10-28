@@ -5966,7 +5966,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 
 	/* FVZ: executing check function after complete the job */
 	debug_utilization(job_ptr, now, "end");
-	_check_job_status(job_ptr, true, false);
+	_check_job_status(job_ptr, true, false, false);
 
 	if ((job_return_code & 0xff) == SIG_OOM) {
 		info("%s: %pJ OOM failure",  __func__, job_ptr);
@@ -18903,12 +18903,15 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	//start with the current job
 	//since we updated it
 	update_jobs = list_create(NULL);
-	list_append(update_jobs,job_ptr);
 	//remove or add to jobs_list jobs sharing
 	_update_sim_job_sharing(job_ptr, update_jobs);
+	
+	//apply overhead for the current job
+	_check_job_status(job_ptr, false, true, true);
+
 	scan_iterator = list_iterator_create(update_jobs);
 	while((job_scan_ptr = (struct job_record *) list_next(scan_iterator))){
-		_check_job_status(job_scan_ptr, false, true);		
+		_check_job_status(job_scan_ptr, false, true, false);		
 	}
 	list_iterator_destroy(scan_iterator);
 
@@ -19169,7 +19172,7 @@ int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *jo
 #endif
 
 //Nishtala: scheduling function
-extern int _check_job_status(struct job_record *job_ptr, bool completing, bool resized) {
+extern int _check_job_status(struct job_record *job_ptr, bool completing, bool resized, bool overhead) {
     /*
      * Need to call this function periodically when the job starts and ends.
      * job_ptr -> current job
@@ -19205,6 +19208,10 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	if(job_ptr->time_delta) time_delta = difftime(now,job_ptr->time_delta);
 
 	job_ptr->time_elapsed = job_ptr->time_elapsed + ((time_delta)*job_ptr->speed);
+
+	//applying the overhead of resizing memory to the job elapsed time.
+	if(overhead)
+		job_ptr->time_elapsed = MAX(job_ptr->time_elapsed - ((trace_usage_overhead)*job_ptr->speed), 0);
 
 	scale = _compute_scale(job_ptr);
 

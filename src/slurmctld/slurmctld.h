@@ -247,7 +247,7 @@ extern double bw_threshold;
 extern int is_multi_curve;
 extern int request_cap;
 extern char *trace_usage_path;
-extern int	trace_usage_interval;
+extern int	trace_usage_overhead;
 
 /*****************************************************************************\
  *  NODE parameters and data structures, mostly in src/common/node_conf.h
@@ -2811,7 +2811,7 @@ extern void send_job_warn_signal(struct job_record *job_ptr, bool ignore_time);
  * 
  * IN job_ptr          - job to calc speed up
  */
-extern int _check_job_status(struct job_record *job_ptr, bool completing, bool resized); 
+extern int _check_job_status(struct job_record *job_ptr, bool completing, bool resized, bool overhead); 
 
 
 #endif /* !_HAVE_SLURMCTLD_H */

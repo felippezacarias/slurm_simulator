@@ -140,7 +140,7 @@
 #define SHUTDOWN_WAIT     2	/* Time to wait for backup server shutdown */
 #define JOB_COUNT_INTERVAL 30   /* Time to update running job count */
 
-#define TRACE_USAGE_INTERVAL	30 /* Time to update job usage */
+#define TRACE_USAGE_OVERHEAD	10 /* Time to update job usage */
 
 /**************************************************************************\
  * To test for memory leaks, set MEMORY_LEAK_DEBUG to 1 using
@@ -204,7 +204,7 @@ double bw_threshold;
 int is_multi_curve;
 int request_cap;
 char *trace_usage_path = NULL;
-int	trace_usage_interval = TRACE_USAGE_INTERVAL;
+int	trace_usage_overhead = TRACE_USAGE_OVERHEAD;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -377,9 +377,14 @@ int main(int argc, char **argv)
 
 	/* FVZ: reading the parameters for the disaggregated trace usage test */
 	if ((slurmctld_conf.slurmctld_params) &&
-		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_interval=")))
-		trace_usage_interval = (tmp_ptr + 21);
-	info("Slurm disaggregated using %d as trace usage interval!", trace_usage_interval);
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_overhead="))){
+		trace_usage_overhead = atoi(tmp_ptr + 21);
+		if (trace_usage_overhead < 0) {
+			fatal("Invalid ControllerParameters trace_usage_overhead: %d",
+					trace_usage_overhead);
+		}	
+	}
+	info("Slurm disaggregated using %d sec as trace usage overhead!", trace_usage_overhead);
 
 	if ((slurmctld_conf.slurmctld_params) && 
 		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "request_cap="))){
