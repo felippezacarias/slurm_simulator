@@ -3762,8 +3762,8 @@ static void _slurm_rpc_shutdown_controller(slurm_msg_t * msg)
 
 static void _dump_node_mem_status()
 {
-	debug5("SDDEBUG: %s Dumping node final info",__func__);
-	debug5("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tstate_idle\tnode_state");
+	info("SDDEBUG: %s Dumping node final info",__func__);
+	info("SDDEBUG: Node_name\tmem_tot\tmem_alloc\tstate_idle\tnode_state");
 	int i;
 	struct node_record *node_ptr;
 	uint16_t node_state;
@@ -3779,18 +3779,18 @@ static void _dump_node_mem_status()
 		select_g_select_nodeinfo_get(node_ptr->select_nodeinfo,
 						SELECT_NODEDATA_SUBCNT,
 						NODE_STATE_ALLOCATED, &node_state);
-		debug5("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,NODE_STATE_UNKNOWN,node_state);
+		info("SDDEBUG: %s\t%lu\t%lu\t%u\t%u",node_ptr->name,node_ptr->real_memory,mem_alloc,NODE_STATE_UNKNOWN,node_state);
 
 	}
 
-	debug5("SDDEBUG: %s Dumping bitmaps final info",__func__);
-	debug5("SDDEBUG: %s avail_node_bitmap %u",__func__,bit_set_count(avail_node_bitmap));
-	debug5("SDDEBUG: %s booting_node_bitmap %u",__func__,bit_set_count(booting_node_bitmap));
-	debug5("SDDEBUG: %s cg_node_bitmap %u",__func__,bit_set_count(cg_node_bitmap));
-	debug5("SDDEBUG: %s idle_node_bitmap %u",__func__,bit_set_count(idle_node_bitmap));
-	debug5("SDDEBUG: %s power_node_bitmap %u",__func__,bit_set_count(power_node_bitmap));
-	debug5("SDDEBUG: %s share_node_bitmap %u",__func__,bit_set_count(share_node_bitmap));
-	debug5("SDDEBUG: %s up_node_bitmap %u",__func__,bit_set_count(up_node_bitmap));
+	info("SDDEBUG: %s Dumping bitmaps final info",__func__);
+	info("SDDEBUG: %s avail_node_bitmap %u",__func__,bit_set_count(avail_node_bitmap));
+	info("SDDEBUG: %s booting_node_bitmap %u",__func__,bit_set_count(booting_node_bitmap));
+	info("SDDEBUG: %s cg_node_bitmap %u",__func__,bit_set_count(cg_node_bitmap));
+	info("SDDEBUG: %s idle_node_bitmap %u",__func__,bit_set_count(idle_node_bitmap));
+	info("SDDEBUG: %s power_node_bitmap %u",__func__,bit_set_count(power_node_bitmap));
+	info("SDDEBUG: %s share_node_bitmap %u",__func__,bit_set_count(share_node_bitmap));
+	info("SDDEBUG: %s up_node_bitmap %u",__func__,bit_set_count(up_node_bitmap));
 }
 
 /* _slurm_rpc_shutdown_controller_immediate - process RPC to shutdown
@@ -7148,7 +7148,7 @@ static void _slurm_rpc_sim_helper_cycle(slurm_msg_t * msg)
         if (last_helper_backfill_time==0 ||
                 /*(current_time-last_helper_backfill_time)>HELPER_BACKFILL_PERIOD_S) {*/
                 (current_time-last_helper_backfill_time)>backfill_interval) {
-                info("unlocking backfill, backfill_interval %d", backfill_interval);
+                debug5("unlocking backfill, backfill_interval %d", backfill_interval);
                 do_backfill();
                 last_helper_backfill_time=current_time;
         }

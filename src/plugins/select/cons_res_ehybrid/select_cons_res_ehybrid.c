@@ -3240,7 +3240,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 
 	//handle error here for the plugin side
 	if(rc){
-		debug5("%s implement cleanup for error!",__func__);
+		info("%s error - restoring usage record!",__func__);
 		//remove new nodes added by the incresing function
 		//also resture the correct values for node_usage when increasing/decreasing mem
 		_restore_usage_record(job_ptr,orig_mem_bitmap,orig_mem_allocated,orig_mem_used);

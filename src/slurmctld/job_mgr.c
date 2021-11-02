@@ -18668,28 +18668,6 @@ int find_list_usage_item(void *object, void *key)
 			(tmp->id_event_progress == tmp_key->id_event_progress));
 }
 
-void _update_sim_job_sharing(struct job_record *job_ptr, List to_update){
-	ListIterator scan_iterator;
-	struct job_record *job_scan_ptr;
-	uint32_t	job_scan_id;
-	uint32_t	jobid = job_ptr->job_id;
-
-	//improve function when it adds another job.
-	scan_iterator = list_iterator_create(job_ptr->job_share);
-	while((job_scan_id = (uint32_t) list_next(scan_iterator))){
-		job_scan_ptr = find_job_record(job_scan_id);
-		if(!_is_sharing_node(job_ptr,job_scan_ptr)){
-			debug5("SDDEBUG: %s for job_id=%u not sharing with job %u",
-					__func__,jobid,job_scan_ptr->job_id);
-			list_remove(scan_iterator);
-			list_remove_first(job_scan_ptr->job_share,_find_entry,&jobid);
-			list_append(to_update,job_scan_ptr);
-		}
-		//not sure if we need to update the job that is still sharing 
-	}
-	list_iterator_destroy(scan_iterator);
-}
-
 double _get_job_progress(struct job_record *job_ptr){
 	double time_delta = 0.0, time_elapsed;
 	time_t now = time(NULL);
@@ -18704,16 +18682,18 @@ double _get_job_progress(struct job_record *job_ptr){
 }
 
 time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_progress){
-	double event_deadline;
+	double event_deadline, time_elapsed;
 	time_t deadline, now = time(NULL);
 
-	if(job_ptr->time_elapsed)
-		event_deadline = ceil((trace_event_progress - (job_ptr->time_elapsed + ((now-job_ptr->time_delta)*job_ptr->speed)))/job_ptr->speed);
+	time_elapsed = _get_job_progress(job_ptr);
+	
+	if(time_elapsed)
+		event_deadline = ceil((trace_event_progress - time_elapsed)/job_ptr->speed);
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
-	debug5("%s[%lu] job_id=%lu event_deadline=%e time_delta=%e speed=%e time_elapsed=%e event_progress=%e",
-			__func__,now,job_ptr->job_id,event_deadline,job_ptr->time_delta,job_ptr->speed,job_ptr->time_elapsed,trace_event_progress);
+	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e event_progress=%e",
+			__func__,now,job_ptr->job_id,event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	deadline = now + event_deadline;
 
@@ -18727,6 +18707,14 @@ void _check_next_trace_usage(){
 	time_t event_time, now = time(NULL);
 
 	job_iterator = list_iterator_create(job_list);
+
+	//In case of this function being callled because of
+	//a new submitted job
+	if(next_trace_usage_check)
+		next_trace_usage_check = 0;
+
+	if(trace_usage == NULL)
+		return;
 	
 	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
 		if (!IS_JOB_RUNNING(job_ptr))
@@ -18765,7 +18753,7 @@ void _check_next_trace_usage(){
 	}
 	list_iterator_destroy(job_iterator);
 
-	debug5("%s updating next_trace_usage_check to %lu",
+	info("SDDEBUG: %s updating next_trace_usage_check to %lu",
 			__func__,next_trace_usage_check);
 }
 
@@ -18780,8 +18768,9 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	int i, first_bit, last_bit;
 	double job_progress, event_progress;
 	List usage, update_jobs;
-	ListIterator scan_iterator;
+	ListIterator scan_iterator, job_iterator;
 	time_t now = time(NULL);
+	bool has_nnodes_changed = false;
 
 	scan_iterator = list_iterator_create(trace_usage);
 	usage = list_create(NULL); // It has to be NULL, because the del func will be in the
@@ -18805,9 +18794,6 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		return rc;
 	}
 
-	debug5("%s[%lu] event for job %lu progress %e event_progress %e",
-				__func__,now,job_ptr->job_id,job_progress,scan->id_event_progress);
-
 	//append the event on a list, then find the others
 	list_append(usage,scan);
 	job_id   = scan->job_id;
@@ -18815,13 +18801,13 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){ 
 		  if((scan->job_id == job_id) && 
-		  	 (scan->id_event_progress == event_progress))
+		  	 (scan->id_event_progress <= event_progress))
 			list_append(usage,scan);
 	}
 
-	debug5("%s Current time %lu Updating job %lu using %d usage events" ,
-			__func__,now,job_ptr->job_id,list_count(usage));
-
+	info("SDDEBUG: %s[%lu] (%d)-events for job %lu progress %e event_progress %e",
+				__func__,now,list_count(usage),job_ptr->job_id,job_progress,event_progress);
+	
 	
 	expand_bitmap 	= bit_copy(job->memory_pool_bitmap);
 	decrease_bitmap = bit_copy(job->memory_pool_bitmap);
@@ -18842,18 +18828,19 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 
 	if(rc){
-		debug5("%s handle error here!",__func__);
+		debug5("%s Error resizing memory! Killing jobid=%u",__func__,job_ptr->job_id);
 		job_ptr->time_left = 0;
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
 		_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
 		return rc;
 	}
-	//if rc != 0 deallocate decrease_bitmap and node_bitmap
-	//call make_node_idle using the diff between
-	//decrease_bitmap and details_ptr->memory_bitmap
+	
+	//call make_node_idle/alloc using the diff between
+	//decrease/expand_bitmap and details_ptr->memory_bitmap
 	bit_and_not(decrease_bitmap,job->memory_pool_bitmap);
 	if(bit_set_count(decrease_bitmap)){
+		has_nnodes_changed = true;
 		//it will force make_node_idle to update job-node_cnt
 		job_ptr->node_bitmap_cg = decrease_bitmap;
 		first_bit = bit_ffs(decrease_bitmap);
@@ -18880,6 +18867,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	FREE_NULL_BITMAP(aux);
 
 	if(bit_set_count(expand_bitmap)){
+		has_nnodes_changed = true;
 		first_bit = bit_ffs(expand_bitmap);
 		if (first_bit != -1)
 			last_bit  = bit_fls(expand_bitmap);
@@ -18900,11 +18888,52 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	job_ptr->node_cnt = bit_set_count(job->memory_pool_bitmap);
 
 	//call update_sim_job
-	//start with the current job
-	//since we updated it
 	update_jobs = list_create(NULL);
-	//remove or add to jobs_list jobs sharing
-	_update_sim_job_sharing(job_ptr, update_jobs);
+
+	if(has_nnodes_changed){
+		info("SDDEBUG: %s updating sim_job_sharing for job_id=%u",__func__,job_ptr->job_id);
+		//remove or add to jobs_list jobs sharing if the number
+		//of nodes for job_ptr has changed
+		uint32_t jobid = job_ptr->job_id, job_scan_id, ret;
+		scan_iterator = list_iterator_create(job_list);
+		
+		while ((job_scan_ptr = (struct job_record *) list_next(scan_iterator))) {
+			if (!IS_JOB_RUNNING(job_scan_ptr))
+				continue;
+
+			job_scan_id = job_scan_ptr->job_id;
+
+			if (jobid == job_scan_id)
+				continue;
+
+			ret = list_find_first(job_ptr->job_share,_find_entry,&job_scan_id);
+
+			debug5("SDDEBUG: %s for job_id=%u job %u ret=%u", __func__,jobid,job_scan_id,ret);
+
+			if(ret){
+				//If it is in job_ptr list and it is not sharing anymore 
+				if(!_is_sharing_node(job_ptr,job_scan_ptr)){
+					//not sharing remove if it was sharing before and add to update_jobs list
+					debug5("SDDEBUG: %s for job_id=%u not sharing with job %u anymore",
+							__func__,jobid,job_scan_id);			
+					list_remove_first(job_ptr->job_share,_find_entry,&job_scan_id);
+					list_remove_first(job_scan_ptr->job_share,_find_entry,&jobid);					
+				}
+				//if job_ptr are sharing add anyway
+				list_append(update_jobs,job_scan_ptr);
+			}
+			//it is not in job_ptr list and it is sharing now
+			else if(_is_sharing_node(job_ptr,job_scan_ptr)){
+					debug5("SDDEBUG: %s for job_id=%u new sharing with job %u",
+							__func__,jobid,job_scan_id);				
+					list_append(job_ptr->job_share, job_scan_id);
+					list_append(job_scan_ptr->job_share, job_ptr->job_id);
+					list_append(update_jobs,job_scan_ptr);
+				}
+
+		}
+		list_iterator_destroy(scan_iterator);
+	}
 	
 	//apply overhead for the current job
 	_check_job_status(job_ptr, false, true, true);
@@ -18929,14 +18958,13 @@ int enforce_trace_usage(){
 	ListIterator scan_iterator, job_iterator;
 	time_t now = time(NULL);
 
+	//next_trace_usage_check will be updated in _check_next_trace_usage
 	if((next_trace_usage_check == 0) ||
 		(next_trace_usage_check > now)){
 		debug5("%s next_trace_usage_check %lu now %lu",
 				__func__,next_trace_usage_check,now);	
 		return rc;
 	}
-	
-	next_trace_usage_check = 0;
 
 	job_iterator = list_iterator_create(job_list);
 
@@ -19192,12 +19220,14 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 
 	info("SDDEBUG: %s for job_id=%u", __func__,job_ptr->job_id);
 	
-	if(!completing && !resized){
+	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
+			if(job_scan_ptr->job_id == job_ptr->job_id)
+				continue;
+
 			if(_is_sharing_node(job_ptr,job_scan_ptr)){				
 				list_append(job_ptr->job_share, job_scan_ptr->job_id);
-				if(job_scan_ptr->job_id != job_ptr->job_id)
-					list_append(job_scan_ptr->job_share, job_ptr->job_id);
+				list_append(job_scan_ptr->job_share, job_ptr->job_id);
 			}
 		}
 	}
@@ -19221,6 +19251,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 		job_ptr->time_left = job_ptr->time_min;
 	else
 		job_ptr->time_left    = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
+
+	job_ptr->time_delta   = now;
 		
 	info("SDDEBUG: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
 			__func__,job_ptr->job_id,list_count(job_ptr->job_share),job_ptr->time_elapsed,
@@ -19273,9 +19305,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	if(completing){
 		list_destroy(job_ptr->job_share);
 		job_ptr->job_share = NULL;
-	}
-
-	job_ptr->time_delta   = now; 
+	}	 
 
 #endif
     return rc;

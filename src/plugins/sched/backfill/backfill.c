@@ -1123,7 +1123,7 @@ extern void *backfill_agent(void *args)
 
 #ifdef SLURM_SIMULATOR
                 //debug("backfill: now %ld, last_backfill_time %ld, wait_time %ld, backfill_interval %d, job_is_completing %d, many_pending_rpcs %d, !avail_front_end %d, !more_work %d", now, last_backfill_time, wait_time, backfill_interval, _job_is_completing(), _many_pending_rpcs(), !avail_front_end(NULL), !_more_work(last_backfill_time));
-                info("backfill: now %ld, last_backfill_time %ld, wait_time %lf, backfill_interval %d ", now, last_backfill_time, wait_time, backfill_interval);
+                debug5("backfill: now %ld, last_backfill_time %ld, wait_time %lf, backfill_interval %d ", now, last_backfill_time, wait_time, backfill_interval);
                 if (!((wait_time < backfill_interval) ||
                     job_is_completing(NULL) || _many_pending_rpcs() ||
                     !avail_front_end(NULL) || !_more_work(last_backfill_time))) {
