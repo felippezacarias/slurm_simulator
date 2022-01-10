@@ -131,8 +131,9 @@ extern int build_job_resources(job_resources_t *job_resrcs,
 
 	/* FVZ: creating structure to hold remote mem index. better to manipulate
 			when we need to add or remove memory */
-	job_resrcs->remote_mem_index = xmalloc(bitmap_len * sizeof(int *));
-	for(i = 0; i < bitmap_len; i++){
+	int32_t nnodes = bit_set_count(job_resrcs->node_bitmap);
+	job_resrcs->remote_mem_index = xmalloc(nnodes * sizeof(int *));
+	for(i = 0; i < nnodes; i++){
 		job_resrcs->remote_mem_index[i] = xmalloc(1 * sizeof(int *));
 		//the first index mean how many remote mem nodes it has
 		job_resrcs->remote_mem_index[i][0] = 0;
