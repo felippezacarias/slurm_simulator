@@ -18827,8 +18827,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	list_delete_all(trace_usage,find_list_usage_item,scan);
 
 
-	if(rc){
-		debug5("%s Error resizing memory! Killing jobid=%u",__func__,job_ptr->job_id);
+	if(rc == SLURM_ERROR){
+		info("%s Error resizing memory! Killing jobid=%u",__func__,job_ptr->job_id);
 		job_ptr->time_left = 0;
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
@@ -18936,7 +18936,8 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	}
 	
 	//apply overhead for the current job
-	_check_job_status(job_ptr, false, true, true);
+	//rc will be 0 if we only decreased memory, or 1 if any node increase it
+	_check_job_status(job_ptr, false, true, rc);
 
 	scan_iterator = list_iterator_create(update_jobs);
 	while((job_scan_ptr = (struct job_record *) list_next(scan_iterator))){
@@ -19218,7 +19219,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	time_t now = time(NULL);
 	bool overlap = false;
 
-	info("SDDEBUG: %s for job_id=%u", __func__,job_ptr->job_id);
+	info("SDDEBUG: %s for job_id=%u overhead=%d", __func__,job_ptr->job_id,overhead);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {

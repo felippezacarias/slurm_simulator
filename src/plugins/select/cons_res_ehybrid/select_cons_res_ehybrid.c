@@ -2788,7 +2788,10 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 		//for loop to shrink memory_allocated array and copy the values.
 		memory_allocated = xmalloc(memory_nhosts * sizeof(uint64_t));
 		memory_used      = xmalloc(memory_nhosts * sizeof(uint64_t));
-		for(i = 0, j = 0; i < orig_mem_nhosts; i++){
+		//If we allow decreasing the memory to 0, the if below will jump
+		//one slot from the compute node, and it will access the wrong value
+		//in the next check
+		for(i = 0, j = 0; i < orig_mem_nhosts; i++){ 
 			if(job->memory_allocated[i]==0)
 				continue;
 			memory_allocated[j] = job->memory_allocated[i];
@@ -3154,6 +3157,8 @@ int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t ne
 	else{
 		//we have to think about the error flow. increase and decrease could be intertwined
 		rc = _increase_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index);
+		if(rc == SLURM_SUCCESS)
+			rc = 1;
 	}
 	
 	if(mem_index)
@@ -3165,6 +3170,7 @@ int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t ne
 extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 
 	int rc = SLURM_SUCCESS;
+	bool add_overhead = false;
 #ifdef SLURM_SIMULATOR
 	job_usage_trace_t *scan_ptr;
 	struct job_resources *job_res = job_ptr->job_resrcs;
@@ -3220,8 +3226,12 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 		details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
 		for(i = 0; i < nodes; i++){
 			rc = _update_node_mem_sim_usage(job_ptr,i,pn_min_memory);
-			if(rc)
+			if(rc == SLURM_ERROR)
 				break;
+			
+			//WIll return 1 if we increased memory. Then, we need to add the allocation overhead
+			if(rc)
+				add_overhead = true;
 		}
 	}
 	else{
@@ -3232,14 +3242,18 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 			update_pn_min_memory = MAX(update_pn_min_memory,pn_min_memory);
 			details->pn_min_memory = update_pn_min_memory | MEM_PER_CPU;
 			rc = _update_node_mem_sim_usage(job_ptr,scan_ptr->node,pn_min_memory);
-			if(rc)
+			if(rc == SLURM_ERROR)
 				break;
+			
+			//WIll return 1 if we increased memory. Then, we need to add the allocation overhead
+			if(rc)
+				add_overhead = true;
 		}	
 		list_iterator_destroy(scan_iterator);
 	}
 
 	//handle error here for the plugin side
-	if(rc){
+	if(rc == SLURM_ERROR){
 		info("%s error - restoring usage record!",__func__);
 		//remove new nodes added by the incresing function
 		//also resture the correct values for node_usage when increasing/decreasing mem
@@ -3264,6 +3278,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	xfree(remote_mem_index);
 	FREE_NULL_BITMAP(orig_mem_bitmap);
 #endif
+	rc = add_overhead;
 	return rc;
 }
 
