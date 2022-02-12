@@ -514,7 +514,11 @@ static slurm_errtab_t slurm_errtab[] = {
 	{ ESLURM_MISSING_TIME_LIMIT,
 	  "Time limit specification required, but not provided"	},
 	{ ESLURM_INVALID_KNL,
-	  "Invalid KNL configuration (MCDRAM or NUMA option)"	}
+	  "Invalid KNL configuration (MCDRAM or NUMA option)"	},
+
+	/* Simulator usage trace custom errors */
+	{ ESLURM_MEMORY_ALLOCATION,
+	  "Was not possible allocate remote memory"	}
 };
 
 /*

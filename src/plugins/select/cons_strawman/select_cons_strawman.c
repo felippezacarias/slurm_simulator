@@ -2568,7 +2568,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	return SLURM_SUCCESS;
 }
 
-extern double select_p_allocated_remote_ratio(struct job_record *job_ptr)
+extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool completing)
 {
 	uint64_t mem_per_cpu = job_ptr->details->pn_min_memory;
 	uint64_t min_cpus, memory, mem_tot, local = 0;

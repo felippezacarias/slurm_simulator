@@ -3979,8 +3979,7 @@ void make_node_idle(struct node_record *node_ptr,
 
 		/*FVZ:  check if it is memory_node to skip */
 		if((bit_test(job_ptr->node_bitmap, inx))){
-			job_update_tres_cnt(job_ptr, inx);
-
+			
 			if (!IS_JOB_FINISHED(job_ptr))
 				job_update_tres_cnt(job_ptr, inx);
 		}

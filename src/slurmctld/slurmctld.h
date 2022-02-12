@@ -127,6 +127,11 @@
 #define MAX_BATCH_REQUEUE 5
 #endif
 
+/* Options to handle memory allocation error during the trace usage tests*/
+#define SIM_USAGE_PAUSE 0
+#define SIM_USAGE_REQUEUE_CLEAN 1
+#define SIM_USAGE_REQUEUE 2
+
 /*****************************************************************************\
  *  General configuration parameters and data structures
 \*****************************************************************************/
@@ -248,6 +253,7 @@ extern int is_multi_curve;
 extern int request_cap;
 extern char *trace_usage_path;
 extern int	trace_usage_overhead;
+extern int	trace_usage_error_op;
 
 /*****************************************************************************\
  *  NODE parameters and data structures, mostly in src/common/node_conf.h
@@ -901,6 +907,7 @@ struct job_record {
 	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
     List job_share;      /*Nishtala: list of jobs running in the same node*/
+	List list_usage;	 /* FVZ: usage trace records for this job;*/
 };
 
 /* Job dependency specification, used in "depend_list" within job_record */

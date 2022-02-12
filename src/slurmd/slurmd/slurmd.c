@@ -623,6 +623,9 @@ _send_complete_batch_script_msg(uint32_t jobid, int err, int status)
        req.job_id      = jobid;
        req.job_rc      = status;
        req.slurm_rc    = err;
+	   
+	   if(status != SLURM_SUCCESS)
+			req.slurm_rc = ESLURM_MEMORY_ALLOCATION;	
 
        slurm_msg_t_init(&req_msg);
        req.node_name   = NULL;

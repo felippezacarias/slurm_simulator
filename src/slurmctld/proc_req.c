@@ -117,6 +117,8 @@ static uint64_t *rpc_user_time = NULL;
 
 #ifdef SLURM_SIMULATOR
 #include <semaphore.h>
+
+static pthread_mutex_t sim_epilog_mutex   = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 static pthread_mutex_t throttle_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -2372,7 +2374,18 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
         slurm_send_rc_msg(msg, SLURM_SUCCESS);
 	finished_jobs_waiting_for_epilog--;
         /* ANA: keep track of the jobs that have finished in its entirety. */
-        total_epilog_complete_jobs++;
+	//we do not increment total_epilog_complete_jobs var for "killed jobs" that will follow the normal
+	//ending of the simulation flow. it only incrementes the var when the job finishes
+	if((job_ptr) && (job_ptr->time_elapsed >= 1.0)){
+		pthread_mutex_lock(&sim_epilog_mutex);
+    	total_epilog_complete_jobs++;
+		pthread_mutex_unlock(&sim_epilog_mutex);
+		info("SIM: %s-if for jobid %u total_epilog_complete_jobs=%lu",__func__,epilog_msg->job_id,total_epilog_complete_jobs);
+	}
+	else{
+		info("SIM: %s-else for jobid %u total_epilog_complete_jobs=%lu",__func__,epilog_msg->job_id,total_epilog_complete_jobs);
+	}
+	
         
 #endif
 }
@@ -2636,7 +2649,12 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 		      slurm_strerror(comp_msg->slurm_rc));
 		slurmctld_diag_stats.jobs_failed++;
 		if (error_code == SLURM_SUCCESS) {
-#ifdef HAVE_FRONT_END
+/* If we are simulating, we do not execute this draning code,
+    because we want to requeue the job if there is an error
+	allocating remote memory. If it drains the front_end node
+	the scheduling function won't run. */
+#ifndef SLURM_SIMULATOR			
+	#ifdef HAVE_FRONT_END
 			if (job_ptr && job_ptr->front_end_ptr) {
 				update_front_end_msg_t update_node_msg;
 				memset(&update_node_msg, 0,
@@ -2648,11 +2666,12 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 					"batch job complete failure";
 				error_code = update_front_end(&update_node_msg);
 			}
-#else
+	#else
 			error_code = drain_nodes(comp_msg->node_name,
 						 "batch job complete failure",
 						 slurmctld_conf.slurm_user_id);
-#endif	/* !HAVE_FRONT_END */
+	#endif	/* !HAVE_FRONT_END */
+#endif	/* SLURM_SIMULATOR */
 			if ((comp_msg->job_rc != SLURM_SUCCESS) && job_ptr &&
 			    job_ptr->details && job_ptr->details->requeue)
 				job_requeue = true;
@@ -4015,8 +4034,12 @@ static void _slurm_rpc_submit_batch_job(slurm_msg_t *msg)
 
 #ifdef SLURM_SIMULATOR
 	/* FVZ: dealing with cancelled jobs */
-	if(job_desc_msg->time_limit == 0)
+	if(job_desc_msg->time_limit == 0){
+		pthread_mutex_lock(&sim_epilog_mutex);
 		total_epilog_complete_jobs++;
+		pthread_mutex_unlock(&sim_epilog_mutex);
+		info("SIM: %s-if total_epilog_complete_jobs=%lu",__func__,total_epilog_complete_jobs);
+	}
 #endif
 
 	/* use the credential to validate where we came from */
