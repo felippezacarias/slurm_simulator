@@ -205,6 +205,7 @@ int is_multi_curve;
 int request_cap;
 char *trace_usage_path = NULL;
 int	trace_usage_overhead = TRACE_USAGE_OVERHEAD;
+int trace_usage_error_op = 1;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -385,6 +386,17 @@ int main(int argc, char **argv)
 		}	
 	}
 	info("Slurm disaggregated using %d sec as trace usage overhead!", trace_usage_overhead);
+
+
+	if ((slurmctld_conf.slurmctld_params) &&
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "trace_usage_error_op="))){
+		trace_usage_error_op = atoi(tmp_ptr + 21);
+		if ((trace_usage_error_op < 0) || (trace_usage_error_op > 2) ) {
+			fatal("Invalid ControllerParameters trace_usage_error_op: %d",
+					trace_usage_error_op);
+		}	
+	}
+	info("Slurm disaggregated using %d option to handle memory allocation error for the trace usage!", trace_usage_error_op);
 
 	if ((slurmctld_conf.slurmctld_params) && 
 		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "request_cap="))){

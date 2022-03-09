@@ -2442,8 +2442,8 @@ static void _set_pack_env(struct job_record *pack_leader,
 }
 
 extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
-	bitstr_t** nodes_bitmap;
-	int32_t nodes = 0;
+	bitstr_t** nodes_bitmap, **mem_bitmap;
+	int32_t nodes = 0, mem_nodes = 0;
 	uint64_t* mem_alloc;
 	int i = 0;
 	int part_cnt = list_count(part_list);
@@ -2455,11 +2455,13 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 
 	partitions = xmalloc(part_cnt * sizeof(char*));
 	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
+	mem_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 	mem_alloc = xmalloc(part_cnt * sizeof(uint64_t));
 
 	while ((part_ptr = (struct part_record *) list_next(part_iterator))) {
 		partitions[i] = xstrdup(part_ptr->name);
 		nodes_bitmap[i] = NULL;
+		mem_bitmap[i] = NULL;
 		mem_alloc[i] = 0;
 		i++;
 	}
@@ -2472,26 +2474,32 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 				i++;
 			if(nodes_bitmap[i] == NULL){
 				nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
+				mem_bitmap[i]   = bit_copy(job_scan_ptr->job_resrcs->memory_pool_bitmap);
 			}else{
 				bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
+				bit_or(mem_bitmap[i],job_scan_ptr->job_resrcs->memory_pool_bitmap);
 			}
+			bit_and_not(mem_bitmap[i],nodes_bitmap[i]);
 			for(int x = 0; x < job_scan_ptr->job_resrcs->memory_nhosts; x++)
 				mem_alloc[i] += job_scan_ptr->job_resrcs->memory_allocated[x]; 
 		}
 	}
 
 	for(int x=0; x < part_cnt; x++){
-		nodes = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
-		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyallocated=%d mem_allocated=%u partition=%s type=%s",
-			__func__,now,job_ptr->job_id,nodes,mem_alloc[x],partitions[x],type);
+		nodes 	  = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
+		mem_nodes = (mem_bitmap[x] != NULL) ? bit_set_count(mem_bitmap[x]) : 0;
+		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyallocated=%d only_mem_nodes=%d mem_allocated=%u partition=%s type=%s",
+			__func__,now,job_ptr->job_id,nodes,mem_nodes,mem_alloc[x],partitions[x],type);
 		xfree(partitions[x]);
 		FREE_NULL_BITMAP(nodes_bitmap[x]);
+		FREE_NULL_BITMAP(mem_bitmap[x]);
 	}
 
 	xfree(last_part);
 	xfree(mem_alloc);
 	xfree(partitions);
 	xfree(nodes_bitmap);
+	xfree(mem_bitmap);
 	list_iterator_destroy(job_iterator);
 }
 

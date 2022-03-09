@@ -2636,7 +2636,12 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 		      slurm_strerror(comp_msg->slurm_rc));
 		slurmctld_diag_stats.jobs_failed++;
 		if (error_code == SLURM_SUCCESS) {
-#ifdef HAVE_FRONT_END
+/* If we are simulating, we do not execute this draning code,
+    because we want to requeue the job if there is an error
+	allocating remote memory. If it drains the front_end node
+	the scheduling function won't run. */
+#ifndef SLURM_SIMULATOR			
+	#ifdef HAVE_FRONT_END
 			if (job_ptr && job_ptr->front_end_ptr) {
 				update_front_end_msg_t update_node_msg;
 				memset(&update_node_msg, 0,
@@ -2648,11 +2653,12 @@ static void _slurm_rpc_complete_batch_script(slurm_msg_t *msg,
 					"batch job complete failure";
 				error_code = update_front_end(&update_node_msg);
 			}
-#else
+	#else
 			error_code = drain_nodes(comp_msg->node_name,
 						 "batch job complete failure",
 						 slurmctld_conf.slurm_user_id);
-#endif	/* !HAVE_FRONT_END */
+	#endif	/* !HAVE_FRONT_END */
+#endif	/* SLURM_SIMULATOR */
 			if ((comp_msg->job_rc != SLURM_SUCCESS) && job_ptr &&
 			    job_ptr->details && job_ptr->details->requeue)
 				job_requeue = true;

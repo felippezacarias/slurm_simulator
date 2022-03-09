@@ -629,6 +629,8 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->time_delta = 0;
 	job_ptr->sim_executable = 0;
 	job_ptr->job_share = list_create(NULL);
+	//job_ptr->list_usage = list_create(NULL);
+	job_ptr->list_usage = NULL;
 
 	(void) list_append(job_list, job_ptr);
 
@@ -6065,6 +6067,8 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 		 * We have reached the maximum number of requeue
 		 * attempts hold the job with HoldMaxRequeue reason.
 		 */
+		//We don't run this code in our simulation
+		#ifndef SLURM_SIMULATOR
 		if (job_ptr->batch_flag > MAX_BATCH_REQUEUE) {
 			job_ptr->job_state |= JOB_REQUEUE_HOLD;
 			job_ptr->state_reason = WAIT_MAX_REQUEUE;
@@ -6073,6 +6077,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 			      __func__, job_ptr);
 			job_ptr->priority = 0;
 		}
+		#endif
 	} else if (IS_JOB_PENDING(job_ptr) && job_ptr->details &&
 		   job_ptr->batch_flag) {
 		/*
@@ -9474,6 +9479,8 @@ static void _list_delete_job(void *job_entry)
 	xfree(job_ptr->tres_req_str);
 	xfree(job_ptr->tres_fmt_req_str);
 	step_list_purge(job_ptr);
+	FREE_NULL_LIST(job_ptr->job_share);
+	FREE_NULL_LIST(job_ptr->list_usage);
 	select_g_select_jobinfo_free(job_ptr->select_jobinfo);
 	xfree(job_ptr->user_name);
 	xfree(job_ptr->wckey);
@@ -15306,6 +15313,25 @@ void batch_requeue_fini(struct job_record  *job_ptr)
 	/* FVZ:Cleaning up memory pool bitmap */
 	if(job_ptr->job_resrcs)
 		FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+
+	info("Requeuing %pJ using requeue error option %d", job_ptr, trace_usage_error_op);
+	if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
+		job_ptr->speed = 0;
+		job_ptr->time_elapsed = 0;
+		job_ptr->time_left = 0;
+		job_ptr->time_delta = 0;
+	}
+	else{
+		job_ptr->speed = 0;
+		job_ptr->time_left = 0;
+		job_ptr->time_delta = 0;
+	}
+	
+	/* FVZ:Setting the list to NULL, so we can copy the values again*/
+	FREE_NULL_LIST(job_ptr->list_usage);
+	
+	
+
 	if (job_ptr->details) {
 		time_t now = time(NULL);
 		/* The time stamp on the new batch launch credential must be
@@ -18688,16 +18714,46 @@ time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_
 	time_elapsed = _get_job_progress(job_ptr);
 	
 	if(time_elapsed)
-		event_deadline = ceil((trace_event_progress - time_elapsed)/job_ptr->speed);
+		//max func covers the cases when the applications's progress is higher than the trace
+		event_deadline = MAX(0, ceil((trace_event_progress - time_elapsed)/job_ptr->speed));
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
 	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e event_progress=%e",
-			__func__,now,job_ptr->job_id,event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
+			__func__,now,job_ptr->job_id,now+event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	deadline = now + event_deadline;
 
 	return deadline;
+}
+
+//Copy the trace usage info to the job, so we can remove in each update
+//or start from the beginning if the job is rescheduled
+int _copy_usage_to_job(struct job_record *job_ptr){
+	int cnt = 0;
+	job_usage_trace_t *scan;
+	ListIterator scan_iterator, job_iterator;
+
+	scan_iterator = list_iterator_create(trace_usage);
+	//The copy is made only if the list is null. The list will be null
+	//when the job record is created  or requeued
+	//we can check if it will start from 0 or not.
+	if(job_ptr->list_usage == NULL){ 
+		job_ptr->list_usage = list_create(NULL);
+		while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
+			if(scan->job_id != job_ptr->job_id)
+				continue;			
+			if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN)
+				list_append(job_ptr->list_usage,scan);
+			else if(scan->id_event_progress >= job_ptr->time_elapsed)
+				  list_append(job_ptr->list_usage,scan);
+		}
+	}	
+	list_iterator_destroy(scan_iterator);
+
+	cnt = list_count(job_ptr->list_usage);
+
+	return cnt;
 }
 
 void _check_next_trace_usage(){
@@ -18720,8 +18776,12 @@ void _check_next_trace_usage(){
 		if (!IS_JOB_RUNNING(job_ptr))
 			continue;
 
+		//If necessary copy the usage record in the job list
+		_copy_usage_to_job(job_ptr);
+
 		scan = NULL;
-		scan_iterator = list_iterator_create(trace_usage);
+		//scan_iterator = list_iterator_create(trace_usage);
+		scan_iterator = list_iterator_create(job_ptr->list_usage);
 		//find first usage event for this job
 		while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
 			if(scan->job_id != job_ptr->job_id)
@@ -18761,29 +18821,24 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	struct job_record *job_scan_ptr;
 	struct node_record *node_ptr;
 	struct job_resources *job = job_ptr->job_resrcs;
-	job_usage_trace_t *scan;
+	job_usage_trace_t *scan = NULL;
 	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
-	uint64_t orig_pn_min_memory;
+	uint64_t max_pn_min_memory;
 	int rc = SLURM_SUCCESS, job_id;
 	int i, first_bit, last_bit;
-	double job_progress, event_progress;
+	double job_progress, event_progress = 0;
 	List usage, update_jobs;
 	ListIterator scan_iterator, job_iterator;
 	time_t now = time(NULL);
 	bool has_nnodes_changed = false;
 
-	scan_iterator = list_iterator_create(trace_usage);
+
+	scan_iterator = list_iterator_create(job_ptr->list_usage);
 	usage = list_create(NULL); // It has to be NULL, because the del func will be in the
 							   // constructor of trace_usage list
 	job_progress = _get_job_progress(job_ptr);
 
-	//find first usage event for this job
-	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){
-		if(scan->job_id != job_ptr->job_id)
-			continue;
-		
-		break;
-	}
+	scan = (struct job_usage_trace_t *) list_peek(job_ptr->list_usage);
 	
 	if((scan == NULL) ||
 	   (scan->id_event_progress > job_progress)){
@@ -18794,45 +18849,76 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		return rc;
 	}
 
-	//append the event on a list, then find the others
-	list_append(usage,scan);
-	job_id   = scan->job_id;
-	event_progress = scan->id_event_progress;
+	max_pn_min_memory = job_ptr->details->pn_min_memory;
 
 	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){ 
-		  if((scan->job_id == job_id) && 
-		  	 (scan->id_event_progress <= event_progress))
-			list_append(usage,scan);
+		  if(scan->id_event_progress <= job_progress){
+				list_append(usage,scan);
+				event_progress = scan->id_event_progress;
+				max_pn_min_memory = MAX(job_ptr->details->pn_min_memory,
+										 scan->pn_mim_memory);
+		  }
 	}
-
-	info("SDDEBUG: %s[%lu] (%d)-events for job %lu progress %e event_progress %e",
-				__func__,now,list_count(usage),job_ptr->job_id,job_progress,event_progress);
+	
+	info("SDDEBUG: %s[%lu] (%d)-events for job %lu progress %e event_progress %e mem_to_enforce=%lu",
+				__func__,now,list_count(usage),job_ptr->job_id,job_progress,event_progress,
+				(max_pn_min_memory & ~MEM_PER_CPU));
 	
 	
 	expand_bitmap 	= bit_copy(job->memory_pool_bitmap);
 	decrease_bitmap = bit_copy(job->memory_pool_bitmap);
-	orig_pn_min_memory = job_ptr->details->pn_min_memory;
+	
 	last_job_update = now;
 
 	//call the allocation plugin.
 	rc = select_g_usage_resize(job_ptr, usage);
 
-	debug5("%s rc %d after select_g_usage_resize idle_nodes %d",
-			__func__,rc,bit_set_count(idle_node_bitmap));
 
-	scan = list_pop(usage);
+	debug5("%s rc %d after select_g_usage_resize idle_nodes %d actual_mem=%lu",
+			__func__,rc,bit_set_count(idle_node_bitmap),
+			(job_ptr->details->pn_min_memory & ~MEM_PER_CPU));
 
 	list_iterator_destroy(scan_iterator);
+	
+	//Removing enforced usages from the job list_usage
+	scan = (struct job_usage_trace_t *) list_pop(usage);
+	while(scan){
+		list_delete_all(job_ptr->list_usage,find_list_usage_item,scan);
+		scan = (struct job_usage_trace_t *) list_pop(usage);
+	}	
 	list_destroy(usage);
-	list_delete_all(trace_usage,find_list_usage_item,scan);
-
+	
 
 	if(rc == SLURM_ERROR){
-		info("%s Error resizing memory! Killing jobid=%u",__func__,job_ptr->job_id);
-		job_ptr->time_left = 0;
+		info("%s Error resizing memory! [%d] Killing jobid=%u total_epilog_complete_jobs=%d",
+				__func__, trace_usage_error_op, job_ptr->job_id,total_epilog_complete_jobs);		
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
-		_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
+
+		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
+		//On the other hand, I guarantee here the values I want to requeue the job.
+		//we decrement total_epilog_complete_jobs var because the "killed jobs" will follow the normal
+		//ending of the simulation flow and it incrementes the var which is used to terminate the simulation
+		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
+			job_ptr->time_left = 0;
+			total_epilog_complete_jobs--;
+			//Using the original requested memory
+			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
+			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
+		}
+		else
+			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
+				job_ptr->time_left = 0;
+				total_epilog_complete_jobs--;
+				//Using the last max failed memory usage		
+				job_ptr->details->orig_pn_min_memory = max_pn_min_memory;
+				job_ptr->details->pn_min_memory = max_pn_min_memory;
+				_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
+			}
+			else
+				debug5("%s rc %d after select_g_usage_resize to implement pause option %d",
+						__func__,rc,trace_usage_error_op);
+		
 		return rc;
 	}
 	
@@ -19247,9 +19333,11 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	scale = _compute_scale(job_ptr);
 
 	job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
-	//it onl works for a job starting. fix it for resized. when we call a single job per function
+	//it only works for a job starting. fix it for resized. when we call a single job per function
+	// but completing and resized are false only in the start
+	//it also covers the case when the job is requeued and it starts with an initial time_elapsed
 	if ((scale == 1.0) && (!(completing || resized)))
-		job_ptr->time_left = job_ptr->time_min;
+		job_ptr->time_left = ceil(job_ptr->time_min - (job_ptr->time_elapsed*job_ptr->time_min));
 	else
 		job_ptr->time_left    = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
 
@@ -19304,8 +19392,13 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	}
 
 	if(completing){
-		list_destroy(job_ptr->job_share);
-		job_ptr->job_share = NULL;
+		FREE_NULL_LIST(job_ptr->job_share);		
+		job_ptr->job_share = list_create(NULL);
+		//If it is part of the requeued process, the list will be set null in the requeue function
+		//Here we just clean and create an empty list to avoid a deadlock in the enforce_trace_usage function
+		FREE_NULL_LIST(job_ptr->list_usage);
+		job_ptr->list_usage = list_create(NULL);
+		
 	}	 
 
 #endif

@@ -285,7 +285,11 @@ enum {
 
 	/* plugin and custom errors */
 	ESLURM_MISSING_TIME_LIMIT       = 8000,
-	ESLURM_INVALID_KNL
+	ESLURM_INVALID_KNL,
+
+	/* Simulator usage trace custom errors */
+	ESLURM_MEMORY_ALLOCATION       = 9000
+
 };
 
 /* look up an errno value */
