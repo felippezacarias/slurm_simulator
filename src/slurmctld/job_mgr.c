@@ -275,7 +275,7 @@ static int  _write_data_array_to_file(char *file_name, char **data,
 				      uint32_t size);
 static void _xmit_new_end_time(struct job_record *job_ptr);
 static int _update_sim_job_status(struct job_record *job_ptr, uint16_t request_type);
-double _compute_scale(struct job_record *job_ptr);
+double _compute_scale(struct job_record *job_ptr, bool completing);
 bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_ptr);
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf);
 
@@ -18719,7 +18719,7 @@ time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
-	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e event_progress=%e",
+	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e next_event_progress=%e",
 			__func__,now,job_ptr->job_id,now+event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	deadline = now + event_deadline;
@@ -18823,7 +18823,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	struct job_resources *job = job_ptr->job_resrcs;
 	job_usage_trace_t *scan = NULL;
 	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
-	uint64_t max_pn_min_memory;
+	uint64_t max_pn_min_memory=0, orig_pn_min_memory;
 	int rc = SLURM_SUCCESS, job_id;
 	int i, first_bit, last_bit;
 	double job_progress, event_progress = 0;
@@ -18849,19 +18849,20 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		return rc;
 	}
 
-	max_pn_min_memory = job_ptr->details->pn_min_memory;
+	orig_pn_min_memory = job_ptr->details->pn_min_memory;
 
 	while((scan = (struct job_usage_trace_t *) list_next(scan_iterator))){ 
 		  if(scan->id_event_progress <= job_progress){
 				list_append(usage,scan);
 				event_progress = scan->id_event_progress;
-				max_pn_min_memory = MAX(job_ptr->details->pn_min_memory,
+				max_pn_min_memory = MAX(max_pn_min_memory,
 										 scan->pn_mim_memory);
 		  }
 	}
 	
-	info("SDDEBUG: %s[%lu] (%d)-events for job %lu progress %e event_progress %e mem_to_enforce=%lu",
+	info("SDDEBUG: %s[%lu] (%d)-events for job %lu progress %e event_progress %e actual_max_mem=%lu mem_to_enforce=%lu",
 				__func__,now,list_count(usage),job_ptr->job_id,job_progress,event_progress,
+				(orig_pn_min_memory & ~MEM_PER_CPU),
 				(max_pn_min_memory & ~MEM_PER_CPU));
 	
 	
@@ -18910,9 +18911,10 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
 				total_epilog_complete_jobs--;
-				//Using the last max failed memory usage		
-				job_ptr->details->orig_pn_min_memory = max_pn_min_memory;
-				job_ptr->details->pn_min_memory = max_pn_min_memory;
+				//Instead we use the max between the last failed memory usage
+				//and the max usage stored in orig_pn_min_memory and
+				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
+				job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 				_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
 			}
 			else
@@ -19112,7 +19114,7 @@ static int _update_sim_job_status(struct job_record *job_ptr, uint16_t request_t
 }
 
 /*FVZ: this function will compute the speed for each interf app and keep the max */
-double _compute_scale(struct job_record *job_ptr){
+double _compute_scale(struct job_record *job_ptr, bool completing){
 	ListIterator job_iterator;
 	struct job_record *job_tmp;
 	double scale = 1.0, time_delta = 0.0, tmp;
@@ -19131,7 +19133,7 @@ double _compute_scale(struct job_record *job_ptr){
 	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
 
 	//estimating  what is the allocation local/remote access
-	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr);
+	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr, completing);
 	//reading application local/remote ratio
 	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
 
@@ -19330,7 +19332,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	if(overhead)
 		job_ptr->time_elapsed = MAX(job_ptr->time_elapsed - ((trace_usage_overhead)*job_ptr->speed), 0);
 
-	scale = _compute_scale(job_ptr);
+	scale = _compute_scale(job_ptr,completing);
 
 	job_ptr->speed        = ((1.0/job_ptr->time_min)*(scale)); 
 	//it only works for a job starting. fix it for resized. when we call a single job per function
@@ -19370,7 +19372,10 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 				}
 			list_iterator_destroy(scan_iterator);
 
-			scale = _compute_scale(job_scan_ptr);
+			//the bool in this function is false, because we will only update the memory value
+			//when calling allocate_memory_ratio for the calling job.
+			//if it is ending we do not update because it can be finishing from an error
+			scale = _compute_scale(job_scan_ptr,false);
 
 			job_scan_ptr->speed        = ((1.0/job_scan_ptr->time_min)*(scale));
 

@@ -101,7 +101,8 @@ typedef struct slurm_select_ops {
 						 bool indf_susp);
 	int		(*job_resume)		(struct job_record *job_ptr,
 						 bool indf_susp);
-	double		(*allocated_remote_ratio)		(struct job_record *job_ptr);
+	double		(*allocated_remote_ratio)		(struct job_record *job_ptr, 
+									bool completing);
 	bitstr_t *      (*step_pick_nodes)      (struct job_record *job_ptr,
 						 select_jobinfo_t *step_jobinfo,
 						 uint32_t node_count,
@@ -551,7 +552,7 @@ extern int select_g_job_resized(struct job_record *job_ptr,
  * for the job_ptr.
  * IN job_ptr - pointer to job
  */
-extern double select_g_allocated_remote_ratio(struct job_record *job_ptr);
+extern double select_g_allocated_remote_ratio(struct job_record *job_ptr, bool completing);
 
 /*
  * Return the remote to local ratio of the memory allocated

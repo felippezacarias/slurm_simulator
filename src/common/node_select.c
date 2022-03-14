@@ -699,13 +699,13 @@ extern int select_g_usage_resize(struct job_record *job_ptr, List usage)
 		(job_ptr, usage);
 }
 
-extern double select_g_allocated_remote_ratio(struct job_record *job_ptr)
+extern double select_g_allocated_remote_ratio(struct job_record *job_ptr, bool completing)
 {
 	if (slurm_select_init(0) < 0)
 		return SLURM_ERROR;
 
 	return (*(ops[select_context_default].allocated_remote_ratio))
-		(job_ptr);
+		(job_ptr, completing);
 }
 
 /*
