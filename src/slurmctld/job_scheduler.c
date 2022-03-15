@@ -2487,7 +2487,7 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 			for(int x = 0; x < job_scan_ptr->job_resrcs->memory_nhosts; x++)
 				mem_alloc[i] += job_scan_ptr->job_resrcs->memory_allocated[x]; 
 		}
-		else{
+		if(IS_JOB_PENDING(job_scan_ptr)){
 			all_pending += 1;
 		}
 	}

@@ -3318,7 +3318,7 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 
 	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u (actual_max/to_alloc)_mem_per_cpu=(%u/%u) nodes=%u remote_ratio=%.5f",
 		__func__,job_ptr->job_id,local,total_allocated,mem_per_cpu,
-		(job_ptr->details->pn_min_memory &= (~MEM_PER_CPU)),nodes,remote_ratio);
+		(job_ptr->details->pn_min_memory & (~MEM_PER_CPU)),nodes,remote_ratio);
 
 	return (remote_ratio);
 }
