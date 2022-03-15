@@ -18891,18 +18891,15 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	
 
 	if(rc == SLURM_ERROR){
-		info("%s Error resizing memory! [%d] Killing jobid=%u total_epilog_complete_jobs=%d",
-				__func__, trace_usage_error_op, job_ptr->job_id,total_epilog_complete_jobs);		
+		info("%s[%lu] Error resizing memory! [%d] Killing jobid=%u",
+				__func__, now, trace_usage_error_op, job_ptr->job_id);		
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
-		//we decrement total_epilog_complete_jobs var because the "killed jobs" will follow the normal
-		//ending of the simulation flow and it incrementes the var which is used to terminate the simulation
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
-			total_epilog_complete_jobs--;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
@@ -18910,7 +18907,6 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
-				total_epilog_complete_jobs--;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and
 				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
@@ -19156,7 +19152,7 @@ double _compute_scale(struct job_record *job_ptr, bool completing){
 				interf_apps_index[idx]=job_tmp->sim_executable;
 				//interf_apps_nodes[idx]=bit_set_count(job_tmp->node_bitmap);
 				interf_apps_nodes[idx]=_compute_interfering_nodes(job_ptr,job_tmp);
-				info("SDDEBUG: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
+				debug("SDDEBUG: %s multi_curve job_id=%u job_tmp=%u sim_executable=%u calc_interf_nodes=%u idx=%d",
 						__func__,job_ptr->job_id,job_tmp->job_id,job_tmp->sim_executable,interf_apps_nodes[idx],idx);
 				idx++;
 
