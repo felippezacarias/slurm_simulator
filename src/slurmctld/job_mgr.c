@@ -18891,7 +18891,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	
 
 	if(rc == SLURM_ERROR){
-		info("%s[%lu] Error resizing memory! [%d] Killing jobid=%u",
+		info("%s[%lu] Error resizing memory! [%d] killing jobid=%u",
 				__func__, now, trace_usage_error_op, job_ptr->job_id);		
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
@@ -19305,8 +19305,15 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	time_t now = time(NULL);
 	bool overlap = false;
 
-	info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_delta=%llu overhead=%d",
-		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,overhead);
+	//return if it tries to update another job that will be killed in the next simulated time
+	if((job_ptr->time_left == 0) && resized){
+		info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_left=%e resized=%d nothing to do. Job to be killed soon.",
+			  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_left,resized);
+		return rc;
+	}
+
+	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e overhead=%d",
+		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,overhead);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
