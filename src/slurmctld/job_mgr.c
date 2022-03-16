@@ -19305,7 +19305,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	time_t now = time(NULL);
 	bool overlap = false;
 
-	info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_delta=%e overhead=%d",
+	info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_delta=%llu overhead=%d",
 		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,overhead);
 	
 	if(!(completing || resized)){
