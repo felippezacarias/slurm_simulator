@@ -2806,8 +2806,12 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 		job->memory_used = memory_used;
 	}
 	
-	info("SDDEBUG: %s job_id %u orig_mem_nhosts %u new_mem_nhosts %u sort %d mem_hosts %s",
-		__func__,job_ptr->job_id,orig_mem_nhosts,bit_set_count(job->memory_pool_bitmap),sort,job->memory_nodes);
+	info("SDDEBUG: %s job_id %u orig_mem_nhosts %u new_mem_nhosts %u",
+		__func__,job_ptr->job_id,orig_mem_nhosts,bit_set_count(job->memory_pool_bitmap));
+		
+	debug("SDDEBUG: %s job_id %u to_sort_vector %d mem_hosts %s",
+		__func__,job_ptr->job_id,sort,job->memory_nodes);
+
 
 	FREE_NULL_BITMAP(orig_mem_bitmap);
 }
@@ -3281,7 +3285,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool completing)
 {
 	struct job_resources *job = job_ptr->job_resrcs;
-	uint64_t memory, local = 0, total_allocated = 0, mem_per_cpu = 0;
+	uint64_t memory, local = 0, total_allocated = 0, mem_per_cpu = 0, min_per_cpu = INFINITE;
 	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
 	uint32_t cores;
 	double remote_ratio;
@@ -3302,6 +3306,8 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 
 		//previous mem_per_cpu allocated
 		mem_per_cpu = MAX(mem_per_cpu,memory/cores);
+
+		min_per_cpu = MIN(min_per_cpu,memory/cores);
 		
 		xfree(mem_index);
 	}
@@ -3316,8 +3322,8 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 		job_ptr->details->pn_min_memory = (mem_per_cpu | MEM_PER_CPU);
 	}
 
-	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u (actual_max/to_alloc)_mem_per_cpu=(%u/%u) nodes=%u remote_ratio=%.5f",
-		__func__,job_ptr->job_id,local,total_allocated,mem_per_cpu,
+	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u (min/actual_max/to_alloc)_mem_per_cpu=(%u/%u/%u) nodes=%u remote_ratio=%.5f",
+		__func__,job_ptr->job_id,local,total_allocated,min_per_cpu,mem_per_cpu,
 		(job_ptr->details->pn_min_memory & (~MEM_PER_CPU)),nodes,remote_ratio);
 
 	return (remote_ratio);

@@ -19072,7 +19072,7 @@ int enforce_trace_usage(){
 
 	//call debug_utilization if necessary
 
-	enforce_trace_usage();
+	//enforce_trace_usage();
 
 	return rc;	
 }
@@ -19082,8 +19082,10 @@ static int _update_sim_job_status(struct job_record *job_ptr, uint16_t request_t
 	slurm_msg_t   req_msg, resp_msg;
 	char* this_addr;
 	int rc = SLURM_SUCCESS;
+	time_t now = time(NULL);
 
-	info("SDDEBUG: %s sending update rpc time_left %e to job_id=%u", __func__,job_ptr->time_left,job_ptr->job_id);
+	info("SDDEBUG: %s[%llu] sending update rpc time_elapsed %e time_left %e to job_id=%u",
+			__func__,now,job_ptr->time_elapsed,job_ptr->time_left,job_ptr->job_id);
 	
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);
@@ -19303,7 +19305,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	time_t now = time(NULL);
 	bool overlap = false;
 
-	info("SDDEBUG: %s for job_id=%u overhead=%d", __func__,job_ptr->job_id,overhead);
+	info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_delta=%e overhead=%d",
+		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,overhead);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
