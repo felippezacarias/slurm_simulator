@@ -18898,11 +18898,11 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
-		//We subtract a second from time_delta, because it will process the killing in the next simulated
+		//We set time_delta to 0, because it will process the killing in the next simulated
 		//time, so when it calls check_job_status the new elapsed time will be the same when it got the error
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
-			job_ptr->time_delta = job_ptr->time_delta - 1;
+			job_ptr->time_delta = 0;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
@@ -18910,7 +18910,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
-				job_ptr->time_delta = job_ptr->time_delta - 1;
+				job_ptr->time_delta = 0;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and
 				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
