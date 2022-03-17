@@ -118,7 +118,6 @@ static uint64_t *rpc_user_time = NULL;
 #ifdef SLURM_SIMULATOR
 #include <semaphore.h>
 
-static pthread_mutex_t sim_epilog_mutex   = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 static pthread_mutex_t throttle_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -2376,14 +2375,14 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
         /* ANA: keep track of the jobs that have finished in its entirety. */
 	//we do not increment total_epilog_complete_jobs var for "killed jobs" that will follow the normal
 	//ending of the simulation flow. it only incrementes the var when the job finishes
-	if((job_ptr) && (job_ptr->time_elapsed >= 1.0)){
-		pthread_mutex_lock(&sim_epilog_mutex);
+	if((job_ptr) && (job_ptr->time_elapsed >= 1.0)){		
     	total_epilog_complete_jobs++;
-		pthread_mutex_unlock(&sim_epilog_mutex);
-		info("SIM: %s-if for jobid %u total_epilog_complete_jobs=%lu",__func__,epilog_msg->job_id,total_epilog_complete_jobs);
+		info("SIM: %s-if for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu",
+			  __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs);
 	}
 	else{
-		info("SIM: %s-else for jobid %u total_epilog_complete_jobs=%lu",__func__,epilog_msg->job_id,total_epilog_complete_jobs);
+		info("SIM: %s-else for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu",
+			 __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs);
 	}
 	
         
@@ -4034,10 +4033,8 @@ static void _slurm_rpc_submit_batch_job(slurm_msg_t *msg)
 
 #ifdef SLURM_SIMULATOR
 	/* FVZ: dealing with cancelled jobs */
-	if(job_desc_msg->time_limit == 0){
-		pthread_mutex_lock(&sim_epilog_mutex);
+	if(job_desc_msg->time_limit == 0){		
 		total_epilog_complete_jobs++;
-		pthread_mutex_unlock(&sim_epilog_mutex);
 		info("SIM: %s-if total_epilog_complete_jobs=%lu",__func__,total_epilog_complete_jobs);
 	}
 #endif

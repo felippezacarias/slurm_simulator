@@ -6026,7 +6026,12 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 		 * accounting logs. Set a new submit time so the restarted
 		 * job looks like a new job.
 		 */
-		job_ptr->end_time = now;
+		//We decrement this end_time for the requeueing, because the job was
+		//"killed" in the previous simulated time, for the time_delta we have to 
+		//add a sec to keep the correct time_elapsed. In the log file, the submit
+		//time of the next attempt and the debug utilization func will show
+		//the ending time as "now"
+		job_ptr->end_time = now - 1;
 		job_ptr->job_state  = JOB_NODE_FAIL;
 		job_completion_logger(job_ptr, true);
 		/*
@@ -18719,7 +18724,7 @@ time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
-	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e next_event_progress=%e",
+	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%lu speed=%e time_elapsed=%e next_event_progress=%e",
 			__func__,now,job_ptr->job_id,now+event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	deadline = now + event_deadline;
@@ -18898,8 +18903,11 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
+		//We add 1 sec to time_delta, because it will process the killing in the next simulated
+		//time, so when it calls check_job_status the new elapsed time will be the same when it got the error
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
+			job_ptr->time_delta = job_ptr->time_delta + 1;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
@@ -18907,6 +18915,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
+				job_ptr->time_delta = job_ptr->time_delta + 1;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and
 				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
@@ -19306,14 +19315,15 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	bool overlap = false;
 
 	//return if it tries to update another job that will be killed in the next simulated time
+	//when this function is called by enforce_usage_trace
 	if((job_ptr->time_left == 0) && resized){
 		info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_left=%e resized=%d nothing to do. Job to be killed soon.",
 			  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_left,resized);
 		return rc;
 	}
 
-	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e overhead=%d",
-		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,overhead);
+	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e completing=%d resized=%d overhead=%d job_state=%u",
+		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,completing,resized,overhead,job_ptr->job_state);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
@@ -19365,18 +19375,30 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
 			if(jobid == job_ptr->job_id) // we don't update the already updated job
 				continue;
-			
-			info("SDDEBUG: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
-			job_scan_ptr = find_job_record(jobid);
-			time_delta = difftime(now,job_scan_ptr->time_delta);
-			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
 
+			job_scan_ptr = find_job_record(jobid);
+			info("SDDEBUG: %s. job_id=%u updating job_id=%u job_state=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid,job_scan_ptr->job_state);
+
+			//Removing the job reference from the job_scan_ptr if it is completing
 			scan_iterator = list_iterator_create(job_scan_ptr->job_share);
 			if(completing)
 				while((scan_jobid = (uint32_t) list_next(scan_iterator))){
 					if(scan_jobid == job_ptr->job_id) list_remove(scan_iterator);
 				}
 			list_iterator_destroy(scan_iterator);
+
+			//skipping job if it is meant to be killed or it is not running
+			//when this function is called by the completing function
+			//we can't update the job if it is finishing
+			if(!IS_JOB_RUNNING(job_scan_ptr) ||
+				(job_scan_ptr->time_left == 0)){
+				info("SDDEBUG: %s. job_id=%u skipping job_id=%u time_left=%e job_state=%u will be killed",
+						__func__,job_ptr->job_id,jobid,job_scan_ptr->time_left,job_scan_ptr->job_state);
+				continue;
+			}
+
+			time_delta = difftime(now,job_scan_ptr->time_delta);
+			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
 
 			//the bool in this function is false, because we will only update the memory value
 			//when calling allocate_memory_ratio for the calling job.
