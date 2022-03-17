@@ -18898,11 +18898,11 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
-		//We set time_delta to 0, because it will process the killing in the next simulated
+		//We add 1 sec to time_delta, because it will process the killing in the next simulated
 		//time, so when it calls check_job_status the new elapsed time will be the same when it got the error
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
-			job_ptr->time_delta = 0;
+			job_ptr->time_delta = job_ptr->time_delta + 1;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
@@ -18910,7 +18910,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
-				job_ptr->time_delta = 0;
+				job_ptr->time_delta = job_ptr->time_delta + 1;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and
 				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
@@ -19369,9 +19369,17 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 			//TODO: What factor is it effected by!? Should we calculate this using "memory intensity"?
 			if(jobid == job_ptr->job_id) // we don't update the already updated job
 				continue;
-			
+
 			info("SDDEBUG: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
+
+			//skipping job if it is meant to be killed
+			if(job_scan_ptr->time_left == 0){
+				info("SDDEBUG: %s. job_id=%u skipping job_id=%u time_left=%e will be killed",
+						__func__,job_ptr->job_id,jobid,job_scan_ptr->time_left);
+				continue;
+			}
+
 			time_delta = difftime(now,job_scan_ptr->time_delta);
 			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
 
