@@ -2469,7 +2469,8 @@ next_task:
 				job_ptr->start_time	= now;
 				job_ptr->end_time	= now;
 				job_completion_logger(job_ptr, false);
-				debug5("SDDEBUG: %s Cancelling jobid %u return_code %d",__func__,job_ptr->job_id,error_code);
+				info("SDDEBUG: %s[%llu] Cancelling jobid %u time_limit %u ready to run. ret_code %d",
+					 __func__,now,job_ptr->job_id,job_ptr->time_limit,error_code);
 				continue;
 			}
 			#endif

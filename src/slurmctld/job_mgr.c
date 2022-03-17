@@ -18719,7 +18719,7 @@ time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
-	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%e speed=%e time_elapsed=%e next_event_progress=%e",
+	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%lu speed=%e time_elapsed=%e next_event_progress=%e",
 			__func__,now,job_ptr->job_id,now+event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	deadline = now + event_deadline;
@@ -18898,8 +18898,11 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
+		//We subtract a second from time_delta, because it will process the killing in the next simulated
+		//time, so when it calls check_job_status the new elapsed time will be the same when it got the error
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
+			job_ptr->time_delta = job_ptr->time_delta - 1;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
 			_update_sim_job_status(job_ptr,REQUEST_KILL_SIM_JOB);
@@ -18907,6 +18910,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
+				job_ptr->time_delta = job_ptr->time_delta - 1;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and
 				job_ptr->details->orig_pn_min_memory = MAX(max_pn_min_memory, orig_pn_min_memory);
@@ -19312,8 +19316,8 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 		return rc;
 	}
 
-	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e overhead=%d",
-		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,overhead);
+	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e completing=%d resized=%d overhead=%d",
+		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,completing,resized,overhead);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
