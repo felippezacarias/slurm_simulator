@@ -19310,14 +19310,15 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	bool overlap = false;
 
 	//return if it tries to update another job that will be killed in the next simulated time
+	//when this function is called by enforce_usage_trace
 	if((job_ptr->time_left == 0) && resized){
 		info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_left=%e resized=%d nothing to do. Job to be killed soon.",
 			  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_left,resized);
 		return rc;
 	}
 
-	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e completing=%d resized=%d overhead=%d",
-		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,completing,resized,overhead);
+	info("SDDEBUG: Entering %s for job_id=%u time_elapsed=%e time_delta=%llu time_left=%e completing=%d resized=%d overhead=%d job_state=%u",
+		  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_delta,job_ptr->time_left,completing,resized,overhead,job_ptr->job_state);
 	
 	if(!(completing || resized)){
 		while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
@@ -19370,25 +19371,29 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 			if(jobid == job_ptr->job_id) // we don't update the already updated job
 				continue;
 
-			info("SDDEBUG: %s. job_id=%u updating job_id=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid);
 			job_scan_ptr = find_job_record(jobid);
+			info("SDDEBUG: %s. job_id=%u updating job_id=%u job_state=%u [xsharing_nodes]", __func__,job_ptr->job_id,jobid,job_scan_ptr->job_state);
 
-			//skipping job if it is meant to be killed
-			if(job_scan_ptr->time_left == 0){
-				info("SDDEBUG: %s. job_id=%u skipping job_id=%u time_left=%e will be killed",
-						__func__,job_ptr->job_id,jobid,job_scan_ptr->time_left);
-				continue;
-			}
-
-			time_delta = difftime(now,job_scan_ptr->time_delta);
-			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
-
+			//Removing the job reference from the job_scan_ptr if it is completing
 			scan_iterator = list_iterator_create(job_scan_ptr->job_share);
 			if(completing)
 				while((scan_jobid = (uint32_t) list_next(scan_iterator))){
 					if(scan_jobid == job_ptr->job_id) list_remove(scan_iterator);
 				}
 			list_iterator_destroy(scan_iterator);
+
+			//skipping job if it is meant to be killed or it is not running
+			//when this function is called by the completing function
+			//we can't update the job if it is finishing
+			if(!IS_JOB_RUNNING(job_scan_ptr) ||
+				(job_scan_ptr->time_left == 0)){
+				info("SDDEBUG: %s. job_id=%u skipping job_id=%u time_left=%e job_state=%u will be killed",
+						__func__,job_ptr->job_id,jobid,job_scan_ptr->time_left,job_scan_ptr->job_state);
+				continue;
+			}
+
+			time_delta = difftime(now,job_scan_ptr->time_delta);
+			job_scan_ptr->time_elapsed = job_scan_ptr->time_elapsed + ((time_delta)*job_scan_ptr->speed);
 
 			//the bool in this function is false, because we will only update the memory value
 			//when calling allocate_memory_ratio for the calling job.
