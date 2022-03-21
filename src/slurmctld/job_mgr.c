@@ -6026,7 +6026,12 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 		 * accounting logs. Set a new submit time so the restarted
 		 * job looks like a new job.
 		 */
-		job_ptr->end_time = now;
+		//We decrement this end_time for the requeueing, because the job was
+		//"killed" in the previous simulated time, for the time_delta we have to 
+		//add a sec to keep the correct time_elapsed. In the log file, the submit
+		//time of the next attempt and the debug utilization func will show
+		//the ending time as "now"
+		job_ptr->end_time = now - 1;
 		job_ptr->job_state  = JOB_NODE_FAIL;
 		job_completion_logger(job_ptr, true);
 		/*
