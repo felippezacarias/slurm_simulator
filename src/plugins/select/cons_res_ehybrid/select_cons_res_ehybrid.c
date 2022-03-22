@@ -3286,12 +3286,14 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 {
 	struct job_resources *job = job_ptr->job_resrcs;
 	uint64_t memory, local = 0, total_allocated = 0, mem_per_cpu = 0, min_per_cpu = INFINITE;
-	uint32_t nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
-	uint32_t cores;
-	double remote_ratio;
+	uint32_t cores, nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
+	double remote_ratio, time_delta = 0.0;
 	int cpu_mem_idx, cpu_bit_idx, *mem_index;
+	time_t now = time(NULL);
 
 	xassert(job_ptr);
+
+	time_delta = (job_ptr->time_delta) ? difftime(now,job_ptr->time_delta) : 0.0;
 		
 	for (int i = 0; i < nodes; i++) {
 		cores = job->cpus[i];		
@@ -3322,9 +3324,9 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 		job_ptr->details->pn_min_memory = (mem_per_cpu | MEM_PER_CPU);
 	}
 
-	info("SDDEBUG: %s job_id=%u local=%u mem_tot=%u (min/actual_max/to_alloc)_mem_per_cpu=(%u/%u/%u) nodes=%u remote_ratio=%.5f",
-		__func__,job_ptr->job_id,local,total_allocated,min_per_cpu,mem_per_cpu,
-		(job_ptr->details->pn_min_memory & (~MEM_PER_CPU)),nodes,remote_ratio);
+	info("SDDEBUG: %s now=%llu job_id=%u local=%u mem_tot=%u (min)(actual_max)(to_alloc)_mem_per_cpu=(%u/%u/%u) nodes=%u remote_ratio=%.5f last_time_delta=%.5f completing=%d",
+		__func__,now,job_ptr->job_id,local,total_allocated,min_per_cpu,mem_per_cpu,
+		(job_ptr->details->pn_min_memory & (~MEM_PER_CPU)),nodes,remote_ratio,time_delta,completing);
 
 	return (remote_ratio);
 }

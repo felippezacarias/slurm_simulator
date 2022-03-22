@@ -7,6 +7,8 @@ double* model_speed(double bw_threshold, int* target_info, int* interf_apps_inde
     int low_rw = 100, nodes = 0, is_interf_local;
     int app_index, app_nodes, interf_n, is_target_local;
 
+    info("Entering %s",__func__);
+
     app_index = target_info[0];
     app_nodes = target_info[1];
     interf_n = target_info[2];
@@ -128,11 +130,17 @@ double read_app_remote_ratio(int target_, int target_procs){
     double ratio = 1.0, ratio_, lb_ratio, ub_ratio;
     int list_size, *list_nodes = NULL;
 
+    info("Entering %s",__func__);
+
     list_size = list_of_nodes(target_, &list_nodes);
 
     has_info = boundary(target_procs,list_size,list_nodes,&lb,&ub);
 
     fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+
+    if (fp == NULL) {    
+        info("%s - Reading app_info_list_ratio file error!",__func__);
+    }
 
     while (fgets(line, 1024, fp))
     {
@@ -195,6 +203,10 @@ void interfering_bw_rw(int interf_, int interf_procs, int idx, int is_local, int
     has_info = boundary(interf_procs,list_size,list_nodes,&lb,&ub);
 
     fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+
+    if (fp == NULL) {    
+        info("%s - Reading app_info_list_ratio file error!",__func__);
+    }
 
     while (fgets(line, 1024, fp))
     {
@@ -287,6 +299,10 @@ int list_of_nodes(int app_, int **list_procs){
     FILE *fp = NULL;
 
     fp = fopen("/home/user/app_info_list_ratio.csv", "r");
+
+    if (fp == NULL) {    
+        info("%s - Reading app_info_list_ratio file error!",__func__);
+    }
     
     while (fgets(line, 1024, fp))
     {
@@ -451,6 +467,10 @@ void read_sensitivity_curve(int app_, int app_proc, int interf_nodes, int is_loc
         N = 5;
 
     file = fopen("/home/user/curves_final_local_remote_sensitivity.csv", "r");
+
+    if (file == NULL) {    
+        info("%s - Reading curves_final_local_remote_sensitivity file error!",__func__);
+    }
 
     //check whether the file has the real app_proc info or whether it is necessary extrapolate
     list_size = list_of_nodes(app_,&list_procs);
