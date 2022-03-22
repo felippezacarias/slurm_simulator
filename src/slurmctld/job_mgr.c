@@ -19131,7 +19131,7 @@ double _compute_scale(struct job_record *job_ptr, bool completing){
 	time_t now = time(NULL);
 	int target_info[4], idx = 0, self_interf = 0;
 	int *interf_apps_index, *interf_apps_nodes;
-	int job_cnt = list_count(job_ptr->job_share);
+	int job_cnt = list_count(job_ptr->job_share), nnodes;
 
 
 	info("SDDEBUG: %s. job_id=%u job_cnt=%d",__func__,job_ptr->job_id,job_cnt);
@@ -19141,8 +19141,11 @@ double _compute_scale(struct job_record *job_ptr, bool completing){
 
 	//estimating  what is the allocation local/remote access
 	remote_allocation_ratio = select_g_allocated_remote_ratio(job_ptr, completing);
+	
+	nnodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
+
 	//reading application local/remote ratio
-	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,bit_set_count(job_ptr->node_bitmap));
+	local_remote_ratio = read_app_remote_ratio(job_ptr->sim_executable,nnodes);
 
 	if(job_cnt){
     	interf_apps_index = (int*) malloc(job_cnt*sizeof(int));
@@ -19151,7 +19154,7 @@ double _compute_scale(struct job_record *job_ptr, bool completing){
 		job_iterator = list_iterator_create(job_ptr->job_share);
 		//I'm considering only the computing nodes. If the number of interfering nodes
 		//is higher due the memory nodes
-		jobnodes+=bit_set_count(job_ptr->node_bitmap);
+		jobnodes+=bit_set_count(job_ptr->job_resrcs->node_bitmap);
 
 		target_info[0] = job_ptr->sim_executable;
     	target_info[1] = jobnodes;
@@ -19238,7 +19241,7 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
 						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
 
-		nodes = bit_set_count(job_ptr->node_bitmap);
+		nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
 
 		debug5("SDDEBUG: %s job_id=%u job_scan_id=%u mnodesxmnodes=%d",__func__,job_ptr->job_id,job_scan_ptr->job_id,mnodes);
 
@@ -19248,7 +19251,7 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 		
 		if((job_ptr->job_id == job_scan_ptr->job_id) &&
 			(plugin_id < SELECT_PLUGIN_CONS_RES_LOCALNOSELF)){
-			if((bit_equal(job_ptr->node_bitmap,
+			if((bit_equal(job_ptr->job_resrcs->node_bitmap,
 						job_ptr->job_resrcs->memory_pool_bitmap))){
 				first = bit_ffs(job_ptr->job_resrcs->memory_pool_bitmap);
 				if (first != -1)
