@@ -19050,6 +19050,9 @@ int enforce_trace_usage(){
 	struct job_record *job_ptr = NULL;
 	int rc = SLURM_SUCCESS;
 	ListIterator scan_iterator, job_iterator;
+	/* Locks: Read config, write job, write node, read partition */
+	slurmctld_lock_t job_write_lock =
+		{ READ_LOCK, WRITE_LOCK, WRITE_LOCK, READ_LOCK, READ_LOCK };
 	time_t now = time(NULL);
 
 	//next_trace_usage_check will be updated in _check_next_trace_usage
@@ -19060,6 +19063,7 @@ int enforce_trace_usage(){
 		return rc;
 	}
 
+	lock_slurmctld(job_write_lock);
 	job_iterator = list_iterator_create(job_list);
 
 	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
@@ -19082,6 +19086,8 @@ int enforce_trace_usage(){
 	//call debug_utilization if necessary
 
 	//enforce_trace_usage();
+
+	unlock_slurmctld(job_write_lock);
 
 	return rc;	
 }
@@ -19318,7 +19324,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	bool overlap = false;
 
 	//return if it tries to update another job that will be killed in the next simulated time
-	//when this function is called by enforce_usage_trace
+	//when this function is called by enforce_trace_usage
 	if((job_ptr->time_left == 0) && resized){
 		info("SDDEBUG: %s for job_id=%u time_elapsed=%e time_left=%e resized=%d nothing to do. Job to be killed soon.",
 			  __func__,job_ptr->job_id,job_ptr->time_elapsed,job_ptr->time_left,resized);
