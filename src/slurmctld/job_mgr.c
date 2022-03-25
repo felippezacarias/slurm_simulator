@@ -6913,6 +6913,7 @@ void _enforce_request_cap(struct job_record *job_ptr){
 	mem = (mem &= (~MEM_PER_CPU));
 	mem -= round(mem*((double)request_cap/100.0));
 	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
+	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
 }
 
 /*
