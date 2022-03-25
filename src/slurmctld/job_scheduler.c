@@ -2442,12 +2442,14 @@ static void _set_pack_env(struct job_record *pack_leader,
 }
 
 extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
-	bitstr_t **nodes_bitmap, **mem_bitmap;
+	bitstr_t **nodes_bitmap, **mem_bitmap, *job_id_mem_bitmap = NULL;
 	int32_t nodes = 0, mem_nodes = 0;
-	uint64_t *mem_alloc, *jobs_running, all_pending;
-	int i = 0;
+	int32_t job_nodes = 0, job_mem_nodes = 0, job_only_mem = 0;
+	uint64_t *mem_alloc, sum, job_mem_alloc = 0;
+	int i = 0, all_pending, *jobs_running;
 	int part_cnt = list_count(part_list);
-	char *last_part = NULL, **partitions=NULL;
+	char *jobs_id = NULL, **partitions=NULL;
+	bool check_mem = false;
 	struct job_record *job_scan_ptr;
 	struct part_record *part_ptr;
 	ListIterator job_iterator = list_iterator_create(job_list);
@@ -2457,8 +2459,9 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 	mem_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 	mem_alloc = xmalloc(part_cnt * sizeof(uint64_t));
-	jobs_running = xmalloc(part_cnt * sizeof(uint64_t));
+	jobs_running = xmalloc(part_cnt * sizeof(int));	
 	all_pending = 0;
+	jobs_id = xstrdup("0");
 
 	while ((part_ptr = (struct part_record *) list_next(part_iterator))) {
 		partitions[i] = xstrdup(part_ptr->name);
@@ -2470,9 +2473,16 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	}
 	list_iterator_destroy(part_iterator);
 
+	if(IS_JOB_RUNNING(job_ptr)){
+		job_id_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+		bit_and_not(job_id_mem_bitmap,job_ptr->job_resrcs->node_bitmap);
+		check_mem = true;
+	}
+	
 	while ((job_scan_ptr = (struct job_record *) list_next(job_iterator))) {
 		if(IS_JOB_RUNNING(job_scan_ptr)){
 			i = 0;
+			sum = 0;
 			while((strcmp(partitions[i],job_scan_ptr->partition) != 0))
 				i++;
 			if(nodes_bitmap[i] == NULL){
@@ -2485,7 +2495,21 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 			jobs_running[i] += 1;
 			bit_and_not(mem_bitmap[i],nodes_bitmap[i]);
 			for(int x = 0; x < job_scan_ptr->job_resrcs->memory_nhosts; x++)
-				mem_alloc[i] += job_scan_ptr->job_resrcs->memory_allocated[x]; 
+				sum += job_scan_ptr->job_resrcs->memory_allocated[x]; 
+			mem_alloc[i] += sum;
+
+			if(job_scan_ptr->job_id == job_ptr->job_id){
+				job_mem_alloc = sum;
+				job_nodes = bit_set_count(job_scan_ptr->job_resrcs->node_bitmap);
+				job_mem_nodes = bit_set_count(job_scan_ptr->job_resrcs->memory_pool_bitmap);
+				job_mem_nodes -= job_nodes;
+			}else{
+				if(check_mem)
+					bit_and_not(job_id_mem_bitmap,job_scan_ptr->job_resrcs->memory_pool_bitmap);
+			}
+
+			xstrfmtcat(jobs_id,",%u", job_scan_ptr->job_id);
+			
 		}
 		if(IS_JOB_PENDING(job_scan_ptr)){
 			all_pending += 1;
@@ -2495,19 +2519,25 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	for(int x=0; x < part_cnt; x++){
 		nodes 	  = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
 		mem_nodes = (mem_bitmap[x] != NULL) ? bit_set_count(mem_bitmap[x]) : 0;
-		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesalreadyallocated=%d only_mem_nodes=%d mem_allocated=%u jobs_running=%u all_pending=%u partition=%s type=%s",
-			__func__,now,job_ptr->job_id,nodes,mem_nodes,mem_alloc[x],jobs_running[x],all_pending,partitions[x],type);
+		job_only_mem = (check_mem) ? bit_set_count(job_id_mem_bitmap) : 0;
+		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesallocated=%d only_mem_nodes=%d mem_allocated=%u "
+		"jobs_running=%d all_pending=%d job_id_nodes=%d job_id_mem_nodes=%d job_id_only_mem=%d job_id_mem_alloc=%u partition=%s type=%s",
+			__func__,now,job_ptr->job_id,nodes,mem_nodes,mem_alloc[x],jobs_running[x],all_pending,
+			job_nodes,job_mem_nodes,job_only_mem,job_mem_alloc,partitions[x],type);
+		info("debug_jobs_running time=%ld job_id=%u jobs_running=%s partition=%s type=%s",
+				now,job_ptr->job_id,jobs_id,partitions[x],type);
 		xfree(partitions[x]);
 		FREE_NULL_BITMAP(nodes_bitmap[x]);
 		FREE_NULL_BITMAP(mem_bitmap[x]);
 	}
 
-	xfree(last_part);
+	xfree(jobs_id);
 	xfree(mem_alloc);
 	xfree(jobs_running);
 	xfree(partitions);
 	xfree(nodes_bitmap);
 	xfree(mem_bitmap);
+	FREE_NULL_BITMAP(job_id_mem_bitmap);
 	list_iterator_destroy(job_iterator);
 }
 
@@ -2560,6 +2590,8 @@ extern void launch_job(struct job_record *job_ptr)
 
 	/* FVZ: executing check function before launching the job */
 	debug_utilization(job_ptr, job_ptr->start_time, "start");
+	/* FVZ: every time we start a job we update resize_error variable */
+	job_ptr->resize_error = false;
 	_check_job_status(job_ptr, false, false, false);
 
 #ifndef SLURM_SIMULATOR

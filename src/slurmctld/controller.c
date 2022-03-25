@@ -401,7 +401,7 @@ int main(int argc, char **argv)
 	if ((slurmctld_conf.slurmctld_params) && 
 		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "request_cap="))){
 		request_cap = atoi(tmp_ptr + 12);
-		if ((request_cap < 0) || (request_cap >= 100)) {
+		if ((request_cap < 0) || (request_cap > 100)) {
 			fatal("Invalid ControllerParameters request_cap: %d",
 					request_cap);
 		}		
