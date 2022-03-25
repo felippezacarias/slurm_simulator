@@ -6912,6 +6912,7 @@ void _enforce_request_cap(struct job_record *job_ptr){
 	uint64_t mem = job_ptr->details->pn_min_memory;
 	mem = (mem &= (~MEM_PER_CPU));
 	mem -= round(mem*((double)request_cap/100.0));
+	info("%s %d percent: before %lu after %lu",__func__,request_cap,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
 	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
 	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
 }
