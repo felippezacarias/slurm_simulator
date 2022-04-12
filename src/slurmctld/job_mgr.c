@@ -628,6 +628,7 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
     job_ptr->time_left = 0;
 	job_ptr->time_delta = 0;
 	job_ptr->sim_executable = 0;
+	job_ptr->resize_error	= false;
 	job_ptr->job_share = list_create(NULL);
 	//job_ptr->list_usage = list_create(NULL);
 	job_ptr->list_usage = NULL;
@@ -18727,10 +18728,10 @@ time_t _get_trace_usage_deadline(struct job_record *job_ptr, double trace_event_
 	else
 		event_deadline = ceil(ceil(1.0/job_ptr->speed)*trace_event_progress);
 
-	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%lu speed=%e time_elapsed=%e next_event_progress=%e",
-			__func__,now,job_ptr->job_id,now+event_deadline,job_ptr->speed,time_elapsed,trace_event_progress);
-
 	deadline = now + event_deadline;
+
+	info("SDDEBUG: %s[%lu] job_id=%u event_deadline=%lu speed=%e time_elapsed=%e next_event_progress=%e",
+			__func__,now,job_ptr->job_id,deadline,job_ptr->speed,time_elapsed,trace_event_progress);
 
 	return deadline;
 }
@@ -18910,6 +18911,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		//time, so when it calls check_job_status the new elapsed time will be the same when it got the error
 		if(trace_usage_error_op == SIM_USAGE_REQUEUE_CLEAN){
 			job_ptr->time_left = 0;
+			job_ptr->resize_error = true;
 			job_ptr->time_delta = job_ptr->time_delta + 1;
 			//Using the original requested memory
 			job_ptr->details->pn_min_memory = job_ptr->details->orig_pn_min_memory;
@@ -18918,6 +18920,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		else
 			if(trace_usage_error_op == SIM_USAGE_REQUEUE){
 				job_ptr->time_left = 0;
+				job_ptr->resize_error = true;
 				job_ptr->time_delta = job_ptr->time_delta + 1;
 				//Instead we use the max between the last failed memory usage
 				//and the max usage stored in orig_pn_min_memory and

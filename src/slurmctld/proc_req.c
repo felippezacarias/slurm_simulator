@@ -2375,14 +2375,16 @@ static void  _slurm_rpc_epilog_complete(slurm_msg_t *msg,
         /* ANA: keep track of the jobs that have finished in its entirety. */
 	//we do not increment total_epilog_complete_jobs var for "killed jobs" that will follow the normal
 	//ending of the simulation flow. it only incrementes the var when the job finishes
-	if((job_ptr) && (job_ptr->time_elapsed >= 1.0)){		
+	//resize_error should be true when the job need to be requeued
+	//I added the variable due to round errors. For some jobs finalizing time_elapsed might not be 1
+	if((job_ptr->time_elapsed >= 1.0) || !(job_ptr->resize_error)){		
     	total_epilog_complete_jobs++;
-		info("SIM: %s-if for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu",
-			  __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs);
+		info("SIM: %s-if for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu resize_error=%d",
+			  __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs,job_ptr->resize_error);
 	}
 	else{
-		info("SIM: %s-else for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu",
-			 __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs);
+		info("SIM: %s-else for jobid %u time_elapsed %e total_epilog_complete_jobs=%lu resize_error=%d",
+			 __func__,epilog_msg->job_id,job_ptr->time_elapsed,total_epilog_complete_jobs,job_ptr->resize_error);
 	}
 	
         

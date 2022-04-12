@@ -906,6 +906,7 @@ struct job_record {
     double time_left;	/* */
 	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
+	bool resize_error;		/* FVZ: indicate if we had an error during enforcing usage trace;*/
     List job_share;      /*Nishtala: list of jobs running in the same node*/
 	List list_usage;	 /* FVZ: usage trace records for this job;*/
 };

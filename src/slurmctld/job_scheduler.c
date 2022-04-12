@@ -2560,6 +2560,8 @@ extern void launch_job(struct job_record *job_ptr)
 
 	/* FVZ: executing check function before launching the job */
 	debug_utilization(job_ptr, job_ptr->start_time, "start");
+	/* FVZ: every time we start a job we update resize_error variable */
+	job_ptr->resize_error = false;
 	_check_job_status(job_ptr, false, false, false);
 
 #ifndef SLURM_SIMULATOR
