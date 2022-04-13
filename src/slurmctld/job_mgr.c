@@ -18771,8 +18771,6 @@ void _check_next_trace_usage(){
 	job_usage_trace_t *scan;	
 	time_t event_time, now = time(NULL);
 
-	job_iterator = list_iterator_create(job_list);
-
 	//In case of this function being callled because of
 	//a new submitted job
 	if(next_trace_usage_check)
@@ -18780,6 +18778,8 @@ void _check_next_trace_usage(){
 
 	if(trace_usage == NULL)
 		return;
+
+	job_iterator = list_iterator_create(job_list);
 	
 	while ((job_ptr = (struct job_record *) list_next(job_iterator))) {
 		if (!IS_JOB_RUNNING(job_ptr))
