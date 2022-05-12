@@ -254,6 +254,7 @@ extern int request_cap;
 extern char *trace_usage_path;
 extern int	trace_usage_overhead;
 extern int	trace_usage_error_op;
+extern int	is_trace_usage_dynamic;
 
 /*****************************************************************************\
  *  NODE parameters and data structures, mostly in src/common/node_conf.h
@@ -906,6 +907,7 @@ struct job_record {
     double time_left;	/* */
 	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
+	double mem_ov; 		/* FVZ: percentage of memory overprovisioned */
 	bool resize_error;		/* FVZ: indicate if we had an error during enforcing usage trace;*/
     List job_share;      /*Nishtala: list of jobs running in the same node*/
 	List list_usage;	 /* FVZ: usage trace records for this job;*/

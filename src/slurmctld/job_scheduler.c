@@ -2442,10 +2442,12 @@ static void _set_pack_env(struct job_record *pack_leader,
 }
 
 extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type){
-	bitstr_t **nodes_bitmap, **mem_bitmap, *job_id_mem_bitmap = NULL;
-	int32_t nodes = 0, mem_nodes = 0;
-	int32_t job_nodes = 0, job_mem_nodes = 0, job_only_mem = 0;
+	bitstr_t **nodes_bitmap, **mem_bitmap, **mem_used_bitmap;
+	bitstr_t *job_id_mem_bitmap = NULL, *job_id_mem_used_bitmap = NULL;
+	int32_t nodes = 0, mem_nodes = 0, mem_used_nodes = 0, job_nodes = 0, job_mem_nodes = 0;
+	int32_t job_mem_used_nodes = 0, job_only_mem = 0, job_only_used_mem = 0;
 	uint64_t *mem_alloc, sum, job_mem_alloc = 0;
+	uint64_t *mem_used, sum_used, job_mem_used = 0;
 	int i = 0, all_pending, *jobs_running;
 	int part_cnt = list_count(part_list);
 	char *jobs_id = NULL, **partitions=NULL;
@@ -2458,7 +2460,9 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	partitions = xmalloc(part_cnt * sizeof(char*));
 	nodes_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 	mem_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
+	mem_used_bitmap  = xmalloc(part_cnt * sizeof(bitstr_t*));
 	mem_alloc = xmalloc(part_cnt * sizeof(uint64_t));
+	mem_used = xmalloc(part_cnt * sizeof(uint64_t));
 	jobs_running = xmalloc(part_cnt * sizeof(int));	
 	all_pending = 0;
 	jobs_id = xstrdup("0");
@@ -2467,15 +2471,20 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 		partitions[i] = xstrdup(part_ptr->name);
 		nodes_bitmap[i] = NULL;
 		mem_bitmap[i] = NULL;
+		mem_used_bitmap[i] = NULL;
 		mem_alloc[i] = 0;
+		mem_used[i] = 0;
 		jobs_running[i] = 0;
 		i++;
 	}
 	list_iterator_destroy(part_iterator);
 
+	// Check_mem true is to check which mem remote nodes are used only by this job
 	if(IS_JOB_RUNNING(job_ptr)){
 		job_id_mem_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap);
+		job_id_mem_used_bitmap = bit_copy(job_ptr->job_resrcs->memory_pool_bitmap_used);
 		bit_and_not(job_id_mem_bitmap,job_ptr->job_resrcs->node_bitmap);
+		bit_and_not(job_id_mem_used_bitmap,job_ptr->job_resrcs->node_bitmap);
 		check_mem = true;
 	}
 	
@@ -2483,29 +2492,42 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 		if(IS_JOB_RUNNING(job_scan_ptr)){
 			i = 0;
 			sum = 0;
+			sum_used = 0;
 			while((strcmp(partitions[i],job_scan_ptr->partition) != 0))
 				i++;
 			if(nodes_bitmap[i] == NULL){
 				nodes_bitmap[i] = bit_copy(job_scan_ptr->job_resrcs->node_bitmap);
 				mem_bitmap[i]   = bit_copy(job_scan_ptr->job_resrcs->memory_pool_bitmap);
+				mem_used_bitmap[i]   = bit_copy(job_scan_ptr->job_resrcs->memory_pool_bitmap_used);
 			}else{
 				bit_or(nodes_bitmap[i],job_scan_ptr->job_resrcs->node_bitmap);
 				bit_or(mem_bitmap[i],job_scan_ptr->job_resrcs->memory_pool_bitmap);
+				bit_or(mem_used_bitmap[i],job_scan_ptr->job_resrcs->memory_pool_bitmap_used);
 			}
 			jobs_running[i] += 1;
 			bit_and_not(mem_bitmap[i],nodes_bitmap[i]);
-			for(int x = 0; x < job_scan_ptr->job_resrcs->memory_nhosts; x++)
+			bit_and_not(mem_used_bitmap[i],nodes_bitmap[i]);
+			for(int x = 0; x < job_scan_ptr->job_resrcs->memory_nhosts; x++){
 				sum += job_scan_ptr->job_resrcs->memory_allocated[x]; 
+				sum_used += job_scan_ptr->job_resrcs->memory_used[x]; 
+			}
 			mem_alloc[i] += sum;
+			mem_used[i]  += sum_used;
 
+			// For this debug memory nodes means only remote nodes
 			if(job_scan_ptr->job_id == job_ptr->job_id){
 				job_mem_alloc = sum;
+				job_mem_used = sum_used;
 				job_nodes = bit_set_count(job_scan_ptr->job_resrcs->node_bitmap);
 				job_mem_nodes = bit_set_count(job_scan_ptr->job_resrcs->memory_pool_bitmap);
+				job_mem_used_nodes = bit_set_count(job_scan_ptr->job_resrcs->memory_pool_bitmap_used);
 				job_mem_nodes -= job_nodes;
+				job_mem_used_nodes -= job_nodes;
 			}else{
-				if(check_mem)
+				if(check_mem){
 					bit_and_not(job_id_mem_bitmap,job_scan_ptr->job_resrcs->memory_pool_bitmap);
+					bit_and_not(job_id_mem_used_bitmap,job_scan_ptr->job_resrcs->memory_pool_bitmap_used);
+				}
 			}
 
 			xstrfmtcat(jobs_id,",%u", job_scan_ptr->job_id);
@@ -2519,25 +2541,35 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 	for(int x=0; x < part_cnt; x++){
 		nodes 	  = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
 		mem_nodes = (mem_bitmap[x] != NULL) ? bit_set_count(mem_bitmap[x]) : 0;
+		mem_used_nodes = (mem_used_bitmap[x] != NULL) ? bit_set_count(mem_used_bitmap[x]) : 0;
 		job_only_mem = (check_mem) ? bit_set_count(job_id_mem_bitmap) : 0;
-		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesallocated=%d only_mem_nodes=%d mem_allocated=%u "
-		"jobs_running=%d all_pending=%d job_id_nodes=%d job_id_mem_nodes=%d job_id_only_mem=%d job_id_mem_alloc=%u partition=%s type=%s",
-			__func__,now,job_ptr->job_id,nodes,mem_nodes,mem_alloc[x],jobs_running[x],all_pending,
-			job_nodes,job_mem_nodes,job_only_mem,job_mem_alloc,partitions[x],type);
+		job_only_used_mem = (check_mem) ? bit_set_count(job_id_mem_used_bitmap) : 0;
+		info("%s time=%ld job_id=%u job_scan_ptr=%d nodesallocated=%d only_mem_nodes=%d only_mem_used=%d "
+		"mem_allocated=%lu mem_used=%lu jobs_running=%d all_pending=%d "
+		"job_id_nodes=%d job_id_mem_nodes=%d job_id_mem_nodes_used=%d "
+		"job_id_only_mem=%d job_id_only_mem_used=%d job_id_mem_alloc=%lu job_id_mem_used=%lu partition=%s type=%s",
+			__func__,now,job_ptr->job_id,0,nodes,mem_nodes,mem_used_nodes,
+			mem_alloc[x],mem_used[x],jobs_running[x],all_pending,
+			job_nodes,job_mem_nodes,job_mem_used_nodes,
+			job_only_mem,job_only_used_mem,job_mem_alloc,job_mem_used,partitions[x],type);
 		info("debug_jobs_running time=%ld job_id=%u jobs_running=%s partition=%s type=%s",
 				now,job_ptr->job_id,jobs_id,partitions[x],type);
 		xfree(partitions[x]);
 		FREE_NULL_BITMAP(nodes_bitmap[x]);
 		FREE_NULL_BITMAP(mem_bitmap[x]);
+		FREE_NULL_BITMAP(mem_used_bitmap[x]);
 	}
 
 	xfree(jobs_id);
 	xfree(mem_alloc);
+	xfree(mem_used);
 	xfree(jobs_running);
 	xfree(partitions);
 	xfree(nodes_bitmap);
 	xfree(mem_bitmap);
+	xfree(mem_used_bitmap);
 	FREE_NULL_BITMAP(job_id_mem_bitmap);
+	FREE_NULL_BITMAP(job_id_mem_used_bitmap);
 	list_iterator_destroy(job_iterator);
 }
 

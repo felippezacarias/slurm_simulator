@@ -3254,8 +3254,10 @@ cleanup:
 	if (error_code != SLURM_SUCCESS){
 		FREE_NULL_BITMAP(job_ptr->node_bitmap);
 		/* FVZ: Cleaning up memory pool bitmap */
-		if(job_ptr->job_resrcs)
+		if(job_ptr->job_resrcs){
 			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap);
+			FREE_NULL_BITMAP(job_ptr->job_resrcs->memory_pool_bitmap_used);
+		}
 	}
 
 	//debug5("SDDEBUG: %s before return jobid %u error_code %d",__func__,job_ptr->job_id,error_code);

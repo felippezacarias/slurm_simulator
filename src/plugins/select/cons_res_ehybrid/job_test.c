@@ -4156,6 +4156,7 @@ alloc_job:
 	//debug5("SDDEBUG: %s job resources of job_id %u filling in memory_nodes info",__func__,job_ptr->job_id);
 
 	job_res->memory_pool_bitmap      = bit_copy(memory_pool_map);
+	job_res->memory_pool_bitmap_used = bit_copy(memory_pool_map);
 	job_res->memory_nodes            = bitmap2node_name(memory_pool_map);
 	job_res->memory_nhosts           = bit_set_count(memory_pool_map);
 	/* FVZ: free memory_pool_here after copy */
@@ -4377,13 +4378,16 @@ alloc_job:
 
 
 			job_res->memory_allocated[idx_mem] = allocated;
+			job_res->memory_used[idx_mem] = allocated;
 			mem_rem_per_node[idx_cpu] = allocated - avail;		 
 			if(allocated >= avail){
 				job_res->memory_allocated[idx_mem] = avail;
+				job_res->memory_used[idx_mem] = avail;
 				rem -=  avail;
 			}else{
 				if(rem <= allocated){
 					job_res->memory_allocated[idx_mem] = rem;
+					job_res->memory_used[idx_mem] = rem;
 					rem = 0;
 				}
 				else
@@ -4421,13 +4425,16 @@ alloc_job:
 											node_usage[i].alloc_memory;
 
 			job_res->memory_allocated[idx_mem] = save_mem;	
+			job_res->memory_used[idx_mem] = save_mem;
 			mem_rem_per_node[idx_cpu] = save_mem - avail;		 
 			if(save_mem >= avail){
 				job_res->memory_allocated[idx_mem] = avail;	
+				job_res->memory_used[idx_mem] = avail;
 				rem -=  avail;
 			}else{
 				if(rem <= save_mem){
 					job_res->memory_allocated[idx_mem] = rem;
+					job_res->memory_used[idx_mem] = rem;
 					rem = 0;
 				}
 				else
@@ -4481,11 +4488,13 @@ alloc_job:
 			if(mem_rem_per_node[idx_cpu] > avail){
 				mem_rem_per_node[idx_cpu] -= avail;
 				job_res->memory_allocated[idx_mem] = avail;
+				job_res->memory_used[idx_mem] = avail;
 				rem -= avail;
 			}
 			else{
 				rem -= mem_rem_per_node[idx_cpu];
 				job_res->memory_allocated[idx_mem] = mem_rem_per_node[idx_cpu];
+				job_res->memory_used[idx_mem] = mem_rem_per_node[idx_cpu];
 				mem_rem_per_node[idx_cpu] = 0;
 			}
 

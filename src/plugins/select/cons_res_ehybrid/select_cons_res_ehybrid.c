@@ -141,6 +141,7 @@ uint16_t *cr_node_num_cores;
 uint32_t *cr_node_cores_offset;
 int slurmctld_tres_cnt = 0;
 slurmctld_config_t slurmctld_config;
+int	is_trace_usage_dynamic;
 #endif
 
 /*
@@ -2626,13 +2627,15 @@ int* _get_mem_resource_idx(struct job_record *job_ptr, int node, int *cpu_mem_id
 	return mem_index;
 }
 
-/* FVZ: return the total mem allocated by each compute node, including its remote mem */
+/* FVZ: return the total mem allocated by each compute node, including its remote mem 
+ * we will return the actual used memory when it uses the usage trace, the memory_used array
+ * will mirror the allocated one for the dynamic version*/
 uint64_t _total_allocated(struct job_resources *job, int node, int cpu_mem_idx, int *mem_index){
 	uint64_t total_allocated = 0;
 	
-	total_allocated = job->memory_allocated[cpu_mem_idx];
+	total_allocated = job->memory_used[cpu_mem_idx];
 	for(int i = 0; i < job->remote_mem_index[node][0] && mem_index; i++)
-		total_allocated += job->memory_allocated[mem_index[i]];
+		total_allocated += job->memory_used[mem_index[i]];
 	
 	return total_allocated;
 }
@@ -2642,7 +2645,7 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 	struct node_use_record *node_usage = select_node_usage;
 	struct node_res_record *node_record = select_node_record;
 	struct job_resources *job = job_ptr->job_resrcs;
-	uint64_t orig_allocated, to_allocate, to_decrease, remote_allocated;
+	uint64_t orig_allocated, to_allocate, to_decrease, remote_allocated, decrease;
 	int rem, i, j, idx_mem, cores = job->cpus[node];
 	int rc = SLURM_SUCCESS, cnt_mem_nodes, *remote_mem_idx;
 
@@ -2653,10 +2656,10 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 	to_allocate = new_mem*cores;
 	to_decrease = orig_allocated - to_allocate;
 
-	rem = orig_allocated - job->memory_allocated[cpu_mem_idx];
+	rem = orig_allocated - job->memory_used[cpu_mem_idx];
 	info("SDDEBUG: %s compute_node job_id %u node %s remote_memory_allocated %lu to_decrease %lu local_mem %lu",
 				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-				rem,to_decrease,job->memory_allocated[cpu_mem_idx]);
+				rem,to_decrease,job->memory_used[cpu_mem_idx]);
 
 	if(rem){
 		//We going from the last added remote memory to the earlier
@@ -2668,25 +2671,38 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 			idx_mem = mem_index[j];
 
 			//How much the current cpu node allocate in this mem node
-			remote_allocated = job->memory_allocated[idx_mem];
+			remote_allocated = job->memory_used[idx_mem];
+
+			if(remote_allocated == 0){
+				info("SDDEBUG: %s [empty] memory_node job_id %u node %s remote_allocated %s remote_memory_allocated %lu node_usage %lu rem %d",
+						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+						node_record[i].node_ptr->name,remote_allocated,job->memory_used[idx_mem],rem);
+				continue;
+			}
 
 			//we check if another mem node was used
 			rem = rem - ((int)remote_allocated);
+			decrease = 0;
 
 			if(remote_allocated < to_decrease){
-				job->memory_allocated[idx_mem] -= remote_allocated;
+				job->memory_used[idx_mem] -= remote_allocated;
+				decrease = remote_allocated;
 				to_decrease -= remote_allocated;
-				node_usage[i].alloc_memory -= remote_allocated;
 			}
 			else{
-				job->memory_allocated[idx_mem] -= to_decrease;
-				node_usage[i].alloc_memory -= to_decrease;
+				job->memory_used[idx_mem] -= to_decrease;
+				decrease = to_decrease;
 				to_decrease = 0;
+			}
+
+			if(is_trace_usage_dynamic){
+				job->memory_allocated[idx_mem] -= decrease;
+				node_usage[i].alloc_memory 	   -= decrease;
 			}
 
 			info("SDDEBUG: %s memory_node job_id %u node %s remote_allocated %s remote_memory_allocated %lu to_decrease %lu node_usage %lu cpus %u rem %d",
 						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-						node_record[i].node_ptr->name,remote_allocated,to_decrease,job->memory_allocated[idx_mem],cores,rem);
+						node_record[i].node_ptr->name,remote_allocated,to_decrease,job->memory_used[idx_mem],cores,rem);
 
 			if(rem == 0 || to_decrease == 0)
 				break;
@@ -2698,12 +2714,15 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 	if(to_decrease){
 		// We finished with the memory nodes for this node
 		// now we remove local memory
-		job->memory_allocated[cpu_mem_idx] -= to_decrease;
-		node_usage[cpu_bit].alloc_memory -= to_decrease;
+		job->memory_used[cpu_mem_idx] -= to_decrease;
+		if(is_trace_usage_dynamic){
+				job->memory_allocated[cpu_mem_idx] -= to_decrease;
+				node_usage[cpu_bit].alloc_memory   -= to_decrease;
+		}
 		to_decrease = 0;
 		info("SDDEBUG: %s memory_compute_node job_id %u node %s remote_mem_node %s to_decrease %lu node_usage %lu cpus %u rem %d",
 			__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-			node_record[cpu_bit].node_ptr->name,to_decrease,job->memory_allocated[cpu_mem_idx],cores,rem);
+			node_record[cpu_bit].node_ptr->name,to_decrease,job->memory_used[cpu_mem_idx],cores,rem);
 	}
 
 	return rc;
@@ -2723,12 +2742,30 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 	bool sort = false;
 
 
+	remote_mem_idx = job->remote_mem_index[node];
+	cnt_mem_nodes  = remote_mem_idx[0];
+	
+	//If it is not dynamic we clean only the used memory nodes
+	if(!is_trace_usage_dynamic){
+		for(j=cnt_mem_nodes-1, cnt=0;j>=0;j--){
+			//index to access plugin resource
+			i = remote_mem_idx[j+1];
+			//mem index on job resource struct
+			idx_mem = mem_index[j];
+			
+			debug5("SDDEBUG: %s job_id %u node %s node_usage %u job-mem_used[%d] %u",
+				__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,node_usage[i].alloc_memory,idx_mem,job->memory_used[idx_mem]);
+			if(job->memory_used[idx_mem] == 0)
+				bit_clear(job->memory_pool_bitmap_used, i);
+		}
+
+		return;
+	}
+
 	orig_mem_nhosts = job->memory_nhosts;
 	orig_mem_bitmap = bit_copy(job->memory_pool_bitmap);
 
-	remote_mem_idx = job->remote_mem_index[node];
-	cnt_mem_nodes  = remote_mem_idx[0];
-
+	
 	for(j=cnt_mem_nodes-1, cnt=0;j>=0;j--){
 		//index to access plugin resource
 		i = remote_mem_idx[j+1];
@@ -2741,6 +2778,7 @@ void extract_mem_node_job_resources(struct job_record *job_ptr, int node,
 			sort = true;
 			cnt++;
 			bit_clear(job->memory_pool_bitmap, i);
+			bit_clear(job->memory_pool_bitmap_used, i);
 			if (node_usage[i].node_state >=
 					job->node_req) {
 					node_usage[i].node_state -=
@@ -2870,9 +2908,6 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 	int i, j, cnt_mem_nodes, cores = job->cpus[node];
 	int idx_mem, first_bit, last_bit, cnt_avail, cnt_alloc = 0;
 	
-	tmp_mem_bitmap = bit_copy(job->memory_pool_bitmap);
-	old_mem_nhosts = bit_set_count(job->memory_pool_bitmap);
-
 	remote_mem_idx = job->remote_mem_index[node];
 	cnt_mem_nodes  = remote_mem_idx[0];
 
@@ -2880,6 +2915,65 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 	to_allocate = new_mem*cores;
 	to_increase = to_allocate - orig_allocated;
 
+	// Handling the static usage case
+	if(!is_trace_usage_dynamic){
+		//1) trying to use the local capacity
+		avail = job->memory_allocated[cpu_mem_idx] - 
+					job->memory_used[cpu_mem_idx];
+
+		info("SDDEBUG: %s compute_node job_id %u node %s to_increase %lu local_avail %d new_mem %lu",
+							__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,avail,new_mem);
+
+		if(avail){
+			if(to_increase >= avail){
+				job->memory_used[cpu_mem_idx]+=avail;				
+				to_increase -= avail;
+			}else{
+				job->memory_used[cpu_mem_idx]+=to_increase;
+				to_increase = 0;
+			}
+		}
+				
+		//2) using the already allocated remote nodes 
+		for(j=1;j<=cnt_mem_nodes && to_increase;j++){
+			//index to access plugin resource
+			i = remote_mem_idx[j];
+			//mem index on job resource struct
+			idx_mem = mem_index[j-1];
+
+			avail = job->memory_allocated[idx_mem] -
+					job->memory_used[idx_mem];
+			
+			info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node %s avail %d left_to_increase %lu",
+				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+				node_record[i].node_ptr->name,avail,to_increase);
+
+			if(avail){
+				if(to_increase >= avail){
+					job->memory_used[idx_mem]+=avail;					
+					to_increase -= avail;
+				}else{
+					job->memory_used[idx_mem]+=to_increase;					
+					to_increase = 0;
+				}
+			}
+			bit_set(job->memory_pool_bitmap_used,i);
+		}
+
+		if(to_increase){
+			info("SDDEBUG: %s job_id %u cnt_alloc %d not found sufficient nodes static version! left_to_increase %lu",
+					__func__,job_ptr->job_id,cnt_alloc,to_increase);
+			rc = SLURM_ERROR;
+		}
+
+		return rc;
+	}
+
+
+	//Handling the dynamic usage execution
+	tmp_mem_bitmap = bit_copy(job->memory_pool_bitmap);
+	old_mem_nhosts = bit_set_count(job->memory_pool_bitmap);
+	
 	//1) trying to use the local capacity
 	avail = node_record[cpu_bit].real_memory - 
 				node_usage[cpu_bit].alloc_memory;
@@ -2890,10 +2984,12 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 	if(avail){
 		if(to_increase >= avail){
 			job->memory_allocated[cpu_mem_idx]+=avail;
+			job->memory_used[cpu_mem_idx]+=avail;
 			node_usage[cpu_bit].alloc_memory+=avail;
 			to_increase -= avail;
 		}else{
 			job->memory_allocated[cpu_mem_idx]+=to_increase;
+			job->memory_used[cpu_mem_idx]+=to_increase;
 			node_usage[cpu_bit].alloc_memory+=to_increase;
 			to_increase = 0;
 		}
@@ -2917,10 +3013,12 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 		if(avail){
 			if(to_increase >= avail){
 				job->memory_allocated[idx_mem]+=avail;
+				job->memory_used[idx_mem]+=avail;
 				node_usage[i].alloc_memory+=avail;
 				to_increase -= avail;
 			}else{
 				job->memory_allocated[idx_mem]+=to_increase;
+				job->memory_used[idx_mem]+=to_increase;
 				node_usage[i].alloc_memory+=to_increase;
 				to_increase = 0;
 			}
@@ -2965,7 +3063,7 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 	}
 
 	if(to_increase){
-		info("SDDEBUG: %s job_id %u cnt_alloc %d not found sufficient nodes! left_to_increase %lu",
+		info("SDDEBUG: %s job_id %u cnt_alloc %d not found sufficient nodes dynamic version! left_to_increase %lu",
 			__func__,job_ptr->job_id,cnt_alloc,to_increase);
 			FREE_NULL_BITMAP(tmp_mem_bitmap);
 		rc = SLURM_ERROR;
@@ -3020,18 +3118,23 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 				//call add_job_to_res to change node run_job and state
 				//of the new addded remote nodes
 				memory_allocated[j] 		= new_allocation[cnt_alloc];
+				memory_used[j] 				= new_allocation[cnt_alloc];
 				node_usage[i].alloc_memory += new_allocation[cnt_alloc];
 				node_usage[i].node_state   += job->node_req;
 				cnt_alloc++;
 			}else{
-				memory_allocated[j] = job->memory_allocated[idx_mem++];
+				memory_allocated[j] = job->memory_allocated[idx_mem];
+				memory_used[j] = job->memory_used[idx_mem];
+				idx_mem++;
 			}
 			debug5("SDDEBUG: %s adding new node job_id %u mem_allocated[%d] %lu",
 						__func__,job_ptr->job_id,j,memory_allocated[j]);
 		}
 		
 		FREE_NULL_BITMAP(job->memory_pool_bitmap);
+		FREE_NULL_BITMAP(job->memory_pool_bitmap_used);
 		job->memory_pool_bitmap = tmp_mem_bitmap;
+		job->memory_pool_bitmap_used = bit_copy(tmp_mem_bitmap);
 		//add memory_allocated array on jobresrc
 		xfree(job->memory_nodes);
 		job->memory_nodes      = bitmap2node_name(job->memory_pool_bitmap);
@@ -3051,57 +3154,62 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node, uint64_t 
 }
 
 void _restore_usage_record(struct job_record *job_ptr, bitstr_t *orig_mem_bitmap,
-				uint64_t *orig_mem_allocated, uint64_t* orig_mem_used){
+				bitstr_t *orig_mem_bitmap_used, uint64_t *orig_mem_allocated, 
+				uint64_t* orig_mem_used){
 	struct node_use_record *node_usage = select_node_usage;
 	struct job_resources *job_res = job_ptr->job_resrcs;
 	uint64_t to_update;
 	int i, j, k, first_bit, last_bit;
 	
-	//this function decreases/increases the memory in already allocated
-	//nodes for this job. Considering increase and decrease func intertwined
-	first_bit = MIN(bit_ffs(orig_mem_bitmap),
-					bit_ffs(job_res->memory_pool_bitmap));
-	if (first_bit != -1)
-		last_bit  = MAX(bit_fls(orig_mem_bitmap),
-						bit_fls(job_res->memory_pool_bitmap));
-	else
-		last_bit = first_bit - 1;
-	
-	for (i = first_bit, j = -1, k = -1; i <= last_bit; i++) {
-		if (!(bit_test(orig_mem_bitmap, i) ||
-			  bit_test(job_res->memory_pool_bitmap, i)))
-			continue;
+	if(is_trace_usage_dynamic){
+		//this function decreases/increases the memory in already allocated
+		//nodes for this job. Considering increase and decrease func intertwined
+		first_bit = MIN(bit_ffs(orig_mem_bitmap),
+						bit_ffs(job_res->memory_pool_bitmap));
+		if (first_bit != -1)
+			last_bit  = MAX(bit_fls(orig_mem_bitmap),
+							bit_fls(job_res->memory_pool_bitmap));
+		else
+			last_bit = first_bit - 1;
+		
+		for (i = first_bit, j = -1, k = -1; i <= last_bit; i++) {
+			if (!(bit_test(orig_mem_bitmap, i) ||
+				bit_test(job_res->memory_pool_bitmap, i)))
+				continue;
 
-		if(bit_test(orig_mem_bitmap, i)){
-			j++;
-			if (bit_test(job_res->memory_pool_bitmap, i)){
-				k++;
-				if(orig_mem_allocated[j] > job_res->memory_allocated[k]){
-					to_update = orig_mem_allocated[j] - job_res->memory_allocated[k];
-					node_usage[i].alloc_memory += to_update;
-				}else{
-					to_update = job_res->memory_allocated[k] - orig_mem_allocated[j];
-					node_usage[i].alloc_memory -= to_update;
+			if(bit_test(orig_mem_bitmap, i)){
+				j++;
+				if (bit_test(job_res->memory_pool_bitmap, i)){
+					k++;
+					if(orig_mem_allocated[j] > job_res->memory_allocated[k]){
+						to_update = orig_mem_allocated[j] - job_res->memory_allocated[k];
+						node_usage[i].alloc_memory += to_update;
+					}else{
+						to_update = job_res->memory_allocated[k] - orig_mem_allocated[j];
+						node_usage[i].alloc_memory -= to_update;
+					}
+				}else{//removed node on decresing memory
+					node_usage[i].alloc_memory += orig_mem_allocated[j];
 				}
-			}else{//removed node on decresing memory
-				node_usage[i].alloc_memory += orig_mem_allocated[j];
+			}else{//new added node
+				k++;
+				if (node_usage[i].node_state >=
+					job_res->node_req) {
+						node_usage[i].node_state -=
+							job_res->node_req;
+				} else {
+						node_usage[i].node_state =
+							NODE_CR_AVAILABLE;
+				}
+				node_usage[i].alloc_memory -= job_res->memory_allocated[k];
 			}
-		}else{//new added node
-			k++;
-			if (node_usage[i].node_state >=
-				job_res->node_req) {
-					node_usage[i].node_state -=
-						job_res->node_req;
-			} else {
-					node_usage[i].node_state =
-						NODE_CR_AVAILABLE;
-			}
-			node_usage[i].alloc_memory -= job_res->memory_allocated[k];
 		}
 	}
 
 	FREE_NULL_BITMAP(job_res->memory_pool_bitmap);
 	job_res->memory_pool_bitmap = orig_mem_bitmap;
+	FREE_NULL_BITMAP(job_res->memory_pool_bitmap_used);
+	job_res->memory_pool_bitmap_used = orig_mem_bitmap_used;
 	xfree(job_res->memory_allocated);
 	xfree(job_res->memory_used);
 	job_res->memory_allocated = orig_mem_allocated;
@@ -3182,15 +3290,16 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	ListIterator scan_iterator;
 	uint64_t *orig_mem_allocated, *orig_mem_used, orig_mem_nhosts;
 	uint64_t pn_min_memory, orig_pn_min_memory;
-	bitstr_t *orig_mem_bitmap = NULL;
+	bitstr_t *orig_mem_bitmap = NULL, *orig_mem_bitmap_used = NULL;
 	int i, j, nodes, **remote_mem_index;
 	time_t now = time(NULL);
 
 	//keeping a copy in case of error at any point
-	orig_mem_bitmap    = bit_copy(job_res->memory_pool_bitmap);
-	orig_mem_nhosts    = bit_set_count(job_res->memory_pool_bitmap);
-	nodes			   = bit_set_count(job_res->node_bitmap);
-	orig_pn_min_memory = details->pn_min_memory;
+	orig_mem_bitmap      = bit_copy(job_res->memory_pool_bitmap);
+	orig_mem_bitmap_used = bit_copy(job_res->memory_pool_bitmap_used);
+	orig_mem_nhosts      = bit_set_count(job_res->memory_pool_bitmap);
+	nodes			     = bit_set_count(job_res->node_bitmap);
+	orig_pn_min_memory   = details->pn_min_memory;
 
 	//keeping a copy from memory allocated before any modification
 	orig_mem_allocated = xmalloc((orig_mem_nhosts) * sizeof(uint64_t));
@@ -3209,8 +3318,8 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 			remote_mem_index[i][j] = job_res->remote_mem_index[i][j];
 	}
 
-	debug5("%s job_id=%u orig_mem_nhosts=%lu orig_pn_min_memory=%lu",
-			__func__,job_ptr->job_id,orig_mem_nhosts,(orig_pn_min_memory & ~MEM_PER_CPU));
+	debug5("%s[%d] job_id=%u orig_mem_nhosts=%lu orig_pn_min_memory=%lu",
+			__func__,is_trace_usage_dynamic,job_ptr->job_id,orig_mem_nhosts,(orig_pn_min_memory & ~MEM_PER_CPU));
 
 	//debug. Remove later
 	scan_iterator = list_iterator_create(usage);
@@ -3254,10 +3363,14 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 
 	//handle error here for the plugin side
 	if(rc == SLURM_ERROR){
+		if(!is_trace_usage_dynamic)
+			info("%s errors in static version should not happen! - restoring usage record!",__func__);
+		
 		info("%s error - restoring usage record!",__func__);
 		//remove new nodes added by the incresing function
 		//also resture the correct values for node_usage when increasing/decreasing mem
-		_restore_usage_record(job_ptr,orig_mem_bitmap,orig_mem_allocated,orig_mem_used);
+		_restore_usage_record(job_ptr,orig_mem_bitmap,orig_mem_bitmap_used,orig_mem_allocated,orig_mem_used);
+
 		for(i = 0; i < nodes; i++){
 			xfree(job_res->remote_mem_index[i]);
 		}
@@ -3277,6 +3390,7 @@ extern int select_p_usage_resize(struct job_record *job_ptr, List usage){
 	}
 	xfree(remote_mem_index);
 	FREE_NULL_BITMAP(orig_mem_bitmap);
+	FREE_NULL_BITMAP(orig_mem_bitmap_used);
 #endif
 	rc = add_overhead;
 	return rc;
@@ -3304,7 +3418,7 @@ extern double select_p_allocated_remote_ratio(struct job_record *job_ptr, bool c
 		memory = _total_allocated(job,i,cpu_mem_idx,mem_index);
 
 		total_allocated += memory;
-		local += job->memory_allocated[cpu_mem_idx];
+		local += job->memory_used[cpu_mem_idx];
 
 		//previous mem_per_cpu allocated
 		mem_per_cpu = MAX(mem_per_cpu,memory/cores);

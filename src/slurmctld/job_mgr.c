@@ -632,6 +632,37 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	job_ptr->job_share = list_create(NULL);
 	//job_ptr->list_usage = list_create(NULL);
 	job_ptr->list_usage = NULL;
+	job_ptr->mem_ov = 0.0;
+
+	/*FVZ simulator mem overprovisioning test */
+	bool is_rand = true;
+	char *tmp_ptr;
+	double seed = 0.0;
+	int seed_const = 0;
+	//0.1 = 10% constant for all jobs
+	//0   = no overestimation
+	//> 2  = seed random % for every job
+	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "mem_ov_seed="))) {
+		seed = atof(tmp_ptr + 12);
+		if (seed <= 2.0) {
+			seed = seed*100;
+			is_rand = false;
+			debug("SchedulerParameters mem_ov_seed constant: %d",seed);
+		}
+	} else
+		seed = 0.0;
+
+	job_ptr->mem_ov = seed; 
+
+	if(is_rand && (seed != 0)){	
+		seed_const = seed;
+		if(job_id_sequence == 1)
+			srand(seed_const);
+		job_ptr->mem_ov = rand() % 101;
+	}
+
+	info("%s job_id_sequence %u rand %f is_rand %d seed %f seed_const %d",
+			__func__,job_id_sequence,job_ptr->mem_ov,is_rand,seed,seed_const);
 
 	(void) list_append(job_list, job_ptr);
 
@@ -6919,6 +6950,17 @@ void _enforce_request_cap(struct job_record *job_ptr){
 	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
 }
 
+//to enforce the overprovisioning for each created job
+void _enforce_request_overprovisioning(struct job_record *job_ptr){
+	uint64_t mem = job_ptr->details->pn_min_memory;
+	double ov 	 = job_ptr->mem_ov;
+	mem = (mem &= (~MEM_PER_CPU));
+	mem += round(((double)mem)*(ov/100.0));
+	info("%s %.5f percent: before %lu after %lu",__func__,ov,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
+	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
+	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
+}
+
 /*
  * _job_create - create a job table record for the supplied specifications.
  *	This performs only basic tests for request validity (access to
@@ -7215,6 +7257,8 @@ static int _job_create(job_desc_msg_t *job_desc, int allocate, int will_run,
 	job_ptr->bit_flags |= JOB_DEPENDENT;
 	job_ptr->last_sched_eval = time(NULL);
 
+	//Simulating overprovisioning
+	_enforce_request_overprovisioning(job_ptr);
 	//simulation test
 	_enforce_request_cap(job_ptr);
 
@@ -18831,7 +18875,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	struct node_record *node_ptr;
 	struct job_resources *job = job_ptr->job_resrcs;
 	job_usage_trace_t *scan = NULL;
-	bitstr_t *expand_bitmap, *decrease_bitmap, *aux;
+	bitstr_t *expand_bitmap, *decrease_bitmap, *aux, *usage_bitmap;
 	uint64_t max_pn_min_memory=0, orig_pn_min_memory;
 	int rc = SLURM_SUCCESS, job_id;
 	int i, first_bit, last_bit;
@@ -18877,6 +18921,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	
 	expand_bitmap 	= bit_copy(job->memory_pool_bitmap);
 	decrease_bitmap = bit_copy(job->memory_pool_bitmap);
+	usage_bitmap	= bit_copy(job->memory_pool_bitmap_used);
 	
 	last_job_update = now;
 
@@ -18904,6 +18949,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 				__func__, now, trace_usage_error_op, job_ptr->job_id);		
 		FREE_NULL_BITMAP(decrease_bitmap);
 		FREE_NULL_BITMAP(expand_bitmap);
+		FREE_NULL_BITMAP(usage_bitmap);
 
 		//If the job goes through backfill pn_min_memory will be updated using orig_pn_min_memory value
 		//On the other hand, I guarantee here the values I want to requeue the job.
@@ -18935,56 +18981,65 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		return rc;
 	}
 	
-	//call make_node_idle/alloc using the diff between
-	//decrease/expand_bitmap and details_ptr->memory_bitmap
-	bit_and_not(decrease_bitmap,job->memory_pool_bitmap);
-	if(bit_set_count(decrease_bitmap)){
-		has_nnodes_changed = true;
-		//it will force make_node_idle to update job-node_cnt
-		job_ptr->node_bitmap_cg = decrease_bitmap;
-		first_bit = bit_ffs(decrease_bitmap);
-		if (first_bit != -1)
-			last_bit  = bit_fls(decrease_bitmap);
-		else
-			last_bit = first_bit - 1;
+	if(is_trace_usage_dynamic){
+		//call make_node_idle/alloc using the diff between
+		//decrease/expand_bitmap and details_ptr->memory_bitmap
+		bit_and_not(decrease_bitmap,job->memory_pool_bitmap);
+		if(bit_set_count(decrease_bitmap)){
+			has_nnodes_changed = true;
+			//it will force make_node_idle to update job-node_cnt
+			job_ptr->node_bitmap_cg = decrease_bitmap;
+			first_bit = bit_ffs(decrease_bitmap);
+			if (first_bit != -1)
+				last_bit  = bit_fls(decrease_bitmap);
+			else
+				last_bit = first_bit - 1;
 
-		for (i = first_bit; i <= last_bit; i++) {
-			if (!bit_test(decrease_bitmap, i))
-				continue;
-			node_ptr = node_record_table_ptr + i;
-			make_node_idle(node_ptr,job_ptr);
+			for (i = first_bit; i <= last_bit; i++) {
+				if (!bit_test(decrease_bitmap, i))
+					continue;
+				node_ptr = node_record_table_ptr + i;
+				make_node_idle(node_ptr,job_ptr);
+			}
+			debug5("%s after make_node_idle idle_nodes %d",
+					__func__,bit_set_count(idle_node_bitmap));
+			FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
+			decrease_bitmap = NULL;
 		}
-		debug5("%s after make_node_idle idle_nodes %d",
-				__func__,bit_set_count(idle_node_bitmap));
-		FREE_NULL_BITMAP(job_ptr->node_bitmap_cg);
-		decrease_bitmap = NULL;
-	}
 
-	aux = bit_copy(expand_bitmap);
-	bit_or(expand_bitmap,job->memory_pool_bitmap);
-	bit_and_not(expand_bitmap,aux);
-	FREE_NULL_BITMAP(aux);
+		aux = bit_copy(expand_bitmap);
+		bit_or(expand_bitmap,job->memory_pool_bitmap);
+		bit_and_not(expand_bitmap,aux);
+		FREE_NULL_BITMAP(aux);
 
-	if(bit_set_count(expand_bitmap)){
-		has_nnodes_changed = true;
-		first_bit = bit_ffs(expand_bitmap);
-		if (first_bit != -1)
-			last_bit  = bit_fls(expand_bitmap);
-		else
-			last_bit = first_bit - 1;
+		if(bit_set_count(expand_bitmap)){
+			has_nnodes_changed = true;
+			first_bit = bit_ffs(expand_bitmap);
+			if (first_bit != -1)
+				last_bit  = bit_fls(expand_bitmap);
+			else
+				last_bit = first_bit - 1;
 
-		for (i = first_bit; i <= last_bit; i++) {
-			if (!bit_test(expand_bitmap, i))
-				continue;
-			node_ptr = node_record_table_ptr + i;
-			make_node_alloc(node_ptr,job_ptr);
+			for (i = first_bit; i <= last_bit; i++) {
+				if (!bit_test(expand_bitmap, i))
+					continue;
+				node_ptr = node_record_table_ptr + i;
+				make_node_alloc(node_ptr,job_ptr);
+			}
+			debug5("%s after make_node_alloc idle_nodes %d",
+					__func__,bit_set_count(idle_node_bitmap));
 		}
-		debug5("%s after make_node_alloc idle_nodes %d",
-				__func__,bit_set_count(idle_node_bitmap));
-	}
 
-	//important update it
-	job_ptr->node_cnt = bit_set_count(job->memory_pool_bitmap);
+		//important update it
+		job_ptr->node_cnt = bit_set_count(job->memory_pool_bitmap);
+	}
+	else{
+		//For static version we compare if the used bitmap changed
+		//if so, we have to update the contention model
+		bit_and_not(usage_bitmap,job->memory_pool_bitmap_used);
+		if(bit_set_count(usage_bitmap))
+			has_nnodes_changed = true;
+	}
 
 	//call update_sim_job
 	update_jobs = list_create(NULL);
@@ -19047,6 +19102,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 	list_destroy(update_jobs);
 	FREE_NULL_BITMAP(decrease_bitmap);
 	FREE_NULL_BITMAP(expand_bitmap);
+	FREE_NULL_BITMAP(usage_bitmap);
 
 	return rc;
 
@@ -19250,8 +19306,8 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 	//if don't ask for exclusive node and is running
 	if ((job_scan_ptr->details->share_res != 0) && (IS_JOB_RUNNING(job_scan_ptr))) {
 
-		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-						job_scan_ptr->job_resrcs->memory_pool_bitmap) > 0);
+		bool mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap_used,
+						job_scan_ptr->job_resrcs->memory_pool_bitmap_used) > 0);
 
 		nodes = bit_set_count(job_ptr->job_resrcs->node_bitmap);
 
@@ -19302,8 +19358,8 @@ bool _is_sharing_node(struct job_record *job_ptr, struct job_record *job_scan_pt
 }
 
 int _compute_interfering_nodes(struct job_record *job_ptr, struct job_record *job_interf){
-	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap,
-					job_interf->job_resrcs->memory_pool_bitmap));
+	int32_t mnodes = (bit_overlap(job_ptr->job_resrcs->memory_pool_bitmap_used,
+					job_interf->job_resrcs->memory_pool_bitmap_used));
 
 	return (mnodes);
 }

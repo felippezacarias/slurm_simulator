@@ -65,6 +65,8 @@
  * memory_nhosts	- Number of hosts allocated to share memory
  * memory_nodes		- Name of nodes sharing memory
  * memory_pool_bitmap - bitmap of allocated memory nodes
+ * memory_pool_bitmap_used - bitmap of allocated memory nodes when applying 
+ * 						the usage trace for the static version
  * memory_used		- MB per node of memory consumed by job steps
  * nhosts		- Number of nodes in the allocation.  On a
  *                        bluegene machine this represents the number
@@ -119,6 +121,7 @@ struct job_resources {
 	uint32_t  memory_nhosts;
 	char 	 *memory_nodes;
 	bitstr_t *memory_pool_bitmap;
+	bitstr_t *memory_pool_bitmap_used;
 	int **remote_mem_index;
 	uint64_t *memory_used;
 	uint32_t  nhosts;
