@@ -427,6 +427,7 @@ extern void free_job_resources(job_resources_t **job_resrcs_pptr)
 	if (job_resrcs_ptr) {
 		/* FVZ: Cleaning up memory pool bitmap */
 		FREE_NULL_BITMAP(job_resrcs_ptr->memory_pool_bitmap);
+		FREE_NULL_BITMAP(job_resrcs_ptr->memory_pool_bitmap_used);
 		xfree(job_resrcs_ptr->memory_nodes);
 		if(job_resrcs_ptr->node_bitmap != NULL){
 			for(int i = 0; i < bit_set_count(job_resrcs_ptr->node_bitmap); i++)

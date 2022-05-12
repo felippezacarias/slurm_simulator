@@ -206,6 +206,7 @@ int request_cap;
 char *trace_usage_path = NULL;
 int	trace_usage_overhead = TRACE_USAGE_OVERHEAD;
 int trace_usage_error_op = 1;
+int is_trace_usage_dynamic = 1;
 
 /* Local variables */
 static pthread_t assoc_cache_thread = (pthread_t) 0;
@@ -409,6 +410,16 @@ int main(int argc, char **argv)
 		request_cap = 0;
 	}
 	info("Slurm disaggregated applying %d%% cap on memory requests!", request_cap);	
+
+	if ((slurmctld_conf.slurmctld_params) &&
+		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_trace_usage_dynamic="))){
+		is_trace_usage_dynamic = atoi(tmp_ptr + 23);
+		if ((is_trace_usage_dynamic < 0) || (is_trace_usage_dynamic > 1) ) {
+			fatal("Invalid ControllerParameters is_trace_usage_dynamic: %d",
+					is_trace_usage_dynamic);
+		}	
+	}
+	info("Slurm disaggregated using option %d to handle trace usage as dynamic!", is_trace_usage_dynamic);
 
 	// Read simulation trace usage
 	_read_trace_usage(trace_usage_path);
