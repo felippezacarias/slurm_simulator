@@ -2499,10 +2499,14 @@ extern void debug_utilization(struct job_record *job_ptr, time_t now, char *type
 
 	for(int x=0; x < part_cnt; x++){
 		nodes = (nodes_bitmap[x] != NULL) ? bit_set_count(nodes_bitmap[x]) : 0;
-		info("%s time=%ld job_id=%u job_scan_ptr=0 nodesallocated=%d only_mem_nodes=%d mem_allocated=%u "
-		"jobs_running=%d all_pending=%d job_id_nodes=%d job_id_mem_nodes=%d job_id_only_mem=%d job_id_mem_alloc=%u partition=%s type=%s",
-			__func__,now,job_ptr->job_id,nodes,0,mem_alloc[x],jobs_running[x],all_pending,
-			job_nodes,0,0,job_mem_alloc,partitions[x],type);
+		info("%s time=%ld job_id=%u job_scan_ptr=%d nodesallocated=%d only_mem_nodes=%d only_mem_used=%d "
+		"mem_allocated=%lu mem_used=%lu jobs_running=%d all_pending=%d "
+		"job_id_nodes=%d job_id_mem_nodes=%d job_id_mem_nodes_used=%d "
+		"job_id_only_mem=%d job_id_only_mem_used=%d job_id_mem_alloc=%lu job_id_mem_used=%lu partition=%s type=%s",
+			__func__,now,job_ptr->job_id,0,nodes,0,0,
+			mem_alloc[x],0,jobs_running[x],all_pending,
+			job_nodes,0,0,
+			0,0,job_mem_alloc,0,partitions[x],type);
 		info("debug_jobs_running time=%ld job_id=%u jobs_running=%s partition=%s type=%s",
 				now,job_ptr->job_id,jobs_id,partitions[x],type);
 		xfree(partitions[x]);
