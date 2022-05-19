@@ -132,6 +132,11 @@
 #define SIM_USAGE_REQUEUE_CLEAN 1
 #define SIM_USAGE_REQUEUE 2
 
+/* Options to handle memory allocation with or without usage trace*/
+#define SIM_USAGE_STATIC 0
+#define SIM_USAGE_DYNAMIC 1
+#define SIM_STATIC 2
+
 /*****************************************************************************\
  *  General configuration parameters and data structures
 \*****************************************************************************/

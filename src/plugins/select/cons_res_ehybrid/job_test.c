@@ -4157,6 +4157,8 @@ alloc_job:
 
 	job_res->memory_pool_bitmap      = bit_copy(memory_pool_map);
 	job_res->memory_pool_bitmap_used = bit_copy(memory_pool_map);
+	if(is_trace_usage_dynamic != SIM_STATIC)
+		bit_clear_all(job_res->memory_pool_bitmap_used);
 	job_res->memory_nodes            = bitmap2node_name(memory_pool_map);
 	job_res->memory_nhosts           = bit_set_count(memory_pool_map);
 	/* FVZ: free memory_pool_here after copy */
@@ -4377,22 +4379,22 @@ alloc_job:
 			if(using_nodes) allocated = save_mem; //specified min_nodes so we treate as mem per node
 
 
-			job_res->memory_allocated[idx_mem] = allocated;
-			job_res->memory_used[idx_mem] = allocated;
+			job_res->memory_allocated[idx_mem] = allocated;			
 			mem_rem_per_node[idx_cpu] = allocated - avail;		 
 			if(allocated >= avail){
-				job_res->memory_allocated[idx_mem] = avail;
-				job_res->memory_used[idx_mem] = avail;
+				job_res->memory_allocated[idx_mem] = avail;				
 				rem -=  avail;
 			}else{
 				if(rem <= allocated){
-					job_res->memory_allocated[idx_mem] = rem;
-					job_res->memory_used[idx_mem] = rem;
+					job_res->memory_allocated[idx_mem] = rem;					
 					rem = 0;
 				}
 				else
 					rem -= (allocated);	
 			}
+			
+			//If using the usage trace, we start the usage = 0, otherwise it will be equal the allocation
+			job_res->memory_used[idx_mem] = (is_trace_usage_dynamic != SIM_STATIC) ? 0: job_res->memory_allocated[idx_mem];
 
 			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u mem_rem_per_node[%d] %d",
 					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx_cpu],idx_cpu,mem_rem_per_node[idx_cpu]);
@@ -4424,22 +4426,21 @@ alloc_job:
 			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
 
-			job_res->memory_allocated[idx_mem] = save_mem;	
-			job_res->memory_used[idx_mem] = save_mem;
+			job_res->memory_allocated[idx_mem] = save_mem;				
 			mem_rem_per_node[idx_cpu] = save_mem - avail;		 
 			if(save_mem >= avail){
-				job_res->memory_allocated[idx_mem] = avail;	
-				job_res->memory_used[idx_mem] = avail;
+				job_res->memory_allocated[idx_mem] = avail;					
 				rem -=  avail;
 			}else{
 				if(rem <= save_mem){
-					job_res->memory_allocated[idx_mem] = rem;
-					job_res->memory_used[idx_mem] = rem;
+					job_res->memory_allocated[idx_mem] = rem;					
 					rem = 0;
 				}
 				else
 					rem -= (save_mem);	
 			}
+
+			job_res->memory_used[idx_mem] = (is_trace_usage_dynamic != SIM_STATIC) ? 0: job_res->memory_allocated[idx_mem];
 
 			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
 					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem);
@@ -4487,16 +4488,16 @@ alloc_job:
 
 			if(mem_rem_per_node[idx_cpu] > avail){
 				mem_rem_per_node[idx_cpu] -= avail;
-				job_res->memory_allocated[idx_mem] = avail;
-				job_res->memory_used[idx_mem] = avail;
+				job_res->memory_allocated[idx_mem] = avail;				
 				rem -= avail;
 			}
 			else{
 				rem -= mem_rem_per_node[idx_cpu];
-				job_res->memory_allocated[idx_mem] = mem_rem_per_node[idx_cpu];
-				job_res->memory_used[idx_mem] = mem_rem_per_node[idx_cpu];
+				job_res->memory_allocated[idx_mem] = mem_rem_per_node[idx_cpu];				
 				mem_rem_per_node[idx_cpu] = 0;
 			}
+
+			job_res->memory_used[idx_mem] = (is_trace_usage_dynamic != SIM_STATIC) ? 0: job_res->memory_allocated[idx_mem];
 
 			info("SDDEBUG: %s job_id %u node[%d] %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
 					__func__,job_ptr->job_id,j,select_node_record[i].node_ptr->name,job_res->remote_mem_index[idx_cpu][j],

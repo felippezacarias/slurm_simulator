@@ -411,7 +411,10 @@ int main(int argc, char **argv)
 	}
 	info("Slurm disaggregated applying %d%% cap on memory requests!", request_cap);	
 
-	if ((slurmctld_conf.slurmctld_params) &&
+	if(trace_usage_path == NULL){
+		is_trace_usage_dynamic = SIM_STATIC;
+	}
+	else if ((slurmctld_conf.slurmctld_params) &&
 		(tmp_ptr=strstr(slurmctld_conf.slurmctld_params, "is_trace_usage_dynamic="))){
 		is_trace_usage_dynamic = atoi(tmp_ptr + 23);
 		if ((is_trace_usage_dynamic < 0) || (is_trace_usage_dynamic > 1) ) {

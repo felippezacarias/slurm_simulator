@@ -18981,7 +18981,7 @@ int _enforce_trace_usage(struct job_record *job_ptr){
 		return rc;
 	}
 	
-	if(is_trace_usage_dynamic){
+	if(is_trace_usage_dynamic == SIM_USAGE_DYNAMIC){
 		//call make_node_idle/alloc using the diff between
 		//decrease/expand_bitmap and details_ptr->memory_bitmap
 		bit_and_not(decrease_bitmap,job->memory_pool_bitmap);
