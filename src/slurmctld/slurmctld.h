@@ -909,6 +909,7 @@ struct job_record {
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
 	double mem_ov; 		/* FVZ: percentage of memory overprovisioned */
 	bool resize_error;		/* FVZ: indicate if we had an error during enforcing usage trace;*/
+	bool is_big_job; 		/* FVZ: indicate if it is a special case to handle the allocation;*/
     List job_share;      /*Nishtala: list of jobs running in the same node*/
 	List list_usage;	 /* FVZ: usage trace records for this job;*/
 };

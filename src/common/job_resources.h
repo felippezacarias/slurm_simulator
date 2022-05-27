@@ -123,6 +123,7 @@ struct job_resources {
 	bitstr_t *memory_pool_bitmap;
 	bitstr_t *memory_pool_bitmap_used;
 	int **remote_mem_index;
+	uint64_t *node_mem_per_core;
 	uint64_t *memory_used;
 	uint32_t  nhosts;
 	bitstr_t *node_bitmap;

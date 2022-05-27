@@ -128,6 +128,9 @@ static int _eval_nodes(struct job_record *job_ptr, bitstr_t *node_map,
 static int _eval_memory(struct job_record *job_ptr, 
 			bitstr_t *node_map, bitstr_t *memory_pool_map,
 			struct node_use_record *node_usage, bool test_only);
+static int _eval_memory_big(struct job_record *job_ptr, 
+			bitstr_t *node_map, bitstr_t *memory_pool_map,
+			struct node_use_record *node_usage, bool test_only);
 static void _get_mem_usage(bitstr_t *memory_pool_map, bitstr_t *local_mem_map, uint32_t cr_node_cnt,
 			   struct node_use_record *node_usage, bool test_only);
 static int _eval_nodes_busy(struct job_record *job_ptr, bitstr_t *node_map,
@@ -3080,12 +3083,6 @@ static int _eval_memory(struct job_record *job_ptr,
 	nodes 	  = bit_set_count(node_map);
 	mem_nodes = bit_set_count(memory_pool_map);
 
-	//if(mem_nodes < nodes){
-	//	//not sufficient memory nodes to avoid self interference
-	//	debug5("SDDEBUG: %s for job_id %u mem_nodes < nodes (%d < %d)! Insufficient to avoid self interference.",__func__,job_ptr->job_id,mem_nodes,nodes);
-	//	return error_code;
-	//}
-
 	node_name = bitmap2node_name(node_map);
 	mem_rem_per_node = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
@@ -3141,7 +3138,7 @@ static int _eval_memory(struct job_record *job_ptr,
 		per_node = (job_ptr->details->pn_min_memory & MEM_PER_CPU) ? select_node_record[i].cpus * req_mem : req_mem;
 
 		mem_rem_per_node[idx] = per_node - free_mem; // think req_mem as per_cpu rewrite to per_node as well
-		debug5("SDDEBUG: %s for job_id %u node %s free_mem %lu per_node %lu  mem_rem_per_node[%d] %d",
+		debug5("SDDEBUG: %s for job_id %u cnode %s free_mem %lu per_node %lu  mem_rem_per_node[%d] %d",
              __func__,job_ptr->job_id,select_node_record[i].node_ptr->name,free_mem,per_node,idx, mem_rem_per_node[idx]);
 		idx++;
 
@@ -3152,7 +3149,7 @@ static int _eval_memory(struct job_record *job_ptr,
 			bit_set(memory_pool_map,i);
 	}
 
-	debug5("SDDEBUG: %s for job_id %u total memory from selected nodes [%s] %lu Job requires %lu",
+	debug5("SDDEBUG: %s for job_id %u total memory from selected cnodes [%s] %lu Job requires %lu",
 			__func__,job_ptr->job_id,node_name,tot_alloc_mem,tot_req_mem);
 
 
@@ -3217,6 +3214,126 @@ static int _eval_memory(struct job_record *job_ptr,
 		return SLURM_ERROR;
 	}
 	return error_code;
+}
+
+static int _eval_memory_big(struct job_record *job_ptr, 
+			bitstr_t *node_map, bitstr_t *memory_pool_map,
+			struct node_use_record *node_usage, bool test_only)
+{
+	int i, nodes, mem_nodes, error_code = SLURM_ERROR;
+	uint64_t tot_req_mem = 0, req_mem = 0, tot_alloc_mem = 0, per_node = 0;
+	uint64_t free_mem, remaining = 0, *local_free;
+	int i_first, i_last, id = 0;
+	char *node_name,*mem_node_name;
+	bitstr_t *orig_map;
+
+
+	req_mem   = job_ptr->details->pn_min_memory & ~MEM_PER_CPU;
+	nodes 	  = bit_set_count(node_map);
+	mem_nodes = bit_set_count(memory_pool_map);
+
+	node_name = bitmap2node_name(node_map);
+
+	/*FVZ: it is the difference between nodes which has memory available, and nodes
+	 * chosen to execute the job.*/
+	orig_map = bit_copy(memory_pool_map);
+	bit_clear_all(memory_pool_map);
+
+	tot_req_mem = (job_ptr->details->min_cpus * req_mem);
+	debug5("SDDEBUG: %s for big_job_id %u percpu %lu tot_req_mem %lu using min_cpus %u node_name %s",
+			__func__,job_ptr->job_id,req_mem,tot_req_mem,job_ptr->details->min_cpus,node_name);
+
+
+	local_free = xmalloc(nodes * sizeof(uint64_t));
+
+	i_first = bit_ffs(node_map);
+	if (i_first == -1)
+		i_last = -2;
+	else
+		i_last  = bit_fls(node_map);
+	for (i = i_first; i <= i_last; i++) {
+		if (!bit_test(node_map, i))
+			continue;
+		free_mem = select_node_record[i].real_memory;
+		if(!test_only)	free_mem -= node_usage[i].alloc_memory;
+
+		// Correctly calculate the requested memory per node
+		per_node = (job_ptr->details->pn_min_memory & MEM_PER_CPU) ? select_node_record[i].cpus * req_mem : req_mem;
+
+		debug5("SDDEBUG: %s for big_job_id %u cnode %s free_mem %lu per_node %lu",
+             __func__,job_ptr->job_id,select_node_record[i].node_ptr->name,free_mem,per_node);
+
+		if(free_mem <= per_node){
+			tot_alloc_mem += free_mem;
+			local_free[id] = 0;
+		}else{
+			tot_alloc_mem += per_node;
+			local_free[id] = free_mem-per_node;
+		}
+		id++;
+
+		if(free_mem != 0)
+			bit_set(memory_pool_map,i);
+	}
+
+	debug5("SDDEBUG: %s for big_job_id %u total memory from selected nodes [%s] %lu Job requires %lu",
+			__func__,job_ptr->job_id,node_name,tot_alloc_mem,tot_req_mem);
+
+
+	/* FVZ: Iterate over memory_pool to increase memory */
+	if(tot_alloc_mem < tot_req_mem){
+		mem_nodes = bit_set_count(memory_pool_map);
+		i_first = bit_ffs(orig_map);
+		if (i_first == -1)
+			i_last = -2;
+		else
+			i_last  = bit_fls(orig_map);
+		for (i = i_first; i <= i_last; i++) {
+			if (!bit_test(orig_map, i))
+				continue;
+			free_mem = select_node_record[i].real_memory;
+			if(!test_only)	free_mem -= node_usage[i].alloc_memory;
+
+			tot_alloc_mem += free_mem;
+			
+			bit_set(memory_pool_map,i);
+			debug5("SDDEBUG: %s [memory node %s free_mem %lu] total allocated up now %lu required %lu",
+					__func__,select_node_record[i].node_ptr->name,free_mem,tot_alloc_mem,tot_req_mem);
+			mem_nodes++;
+			if(tot_alloc_mem >= tot_req_mem){
+				error_code = SLURM_SUCCESS;
+				mem_node_name = bitmap2node_name(memory_pool_map);
+				debug5("SDDEBUG: %s for big_job_id %u requested memory achieved using %d memory nodes %s",
+						__func__,job_ptr->job_id,mem_nodes,mem_node_name);
+				xfree(mem_node_name);
+				break;
+			}
+		}
+	}
+	else
+	{
+		debug5("SDDEBUG: %s for job_id %u Memory requirement fits on %s",__func__,job_ptr->job_id,node_name);		
+		error_code = SLURM_SUCCESS;
+	}
+
+	//Using the memory available in compute nodes
+	if(error_code == SLURM_ERROR) {
+		for (id = 0; id < nodes && (tot_alloc_mem < tot_req_mem); id++) 
+			tot_alloc_mem += local_free[id];
+	}	
+
+	xfree(node_name);
+	xfree(local_free);
+	FREE_NULL_BITMAP(orig_map);
+	
+	//Check if using compute node memory we can satisfy the request
+	if(tot_alloc_mem < tot_req_mem) {
+		debug("SDDEBUG: %s for big_job_id %u was not possible to allocate enough memory %lu of %lu for this job. nodes - mem_nodes (%d - %d)",
+				__func__,job_ptr->job_id,tot_alloc_mem,tot_req_mem,nodes,mem_nodes);		
+		return SLURM_ERROR;
+	}else{
+		return SLURM_SUCCESS;
+	}
 }
 
 /* this is an intermediary step between _select_nodes and _eval_nodes
@@ -3444,8 +3561,21 @@ static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 	* bit_and_not return the difference between both bitmaps */	
 	if(rc == SLURM_SUCCESS){
 		bit_and_not(memory_pool_map,node_map);
+		orig_map = bit_copy(memory_pool_map);
 		//debug5("SDDEBUG: %s After bit_and_not memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 		rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
+
+		//if((rc == SLURM_SUCCESS) && !test_only)
+		//	job_ptr->is_big_job = false;
+
+		if((rc != SLURM_SUCCESS) && job_ptr->is_big_job){
+			bit_clear_all(memory_pool_map);
+			bit_or(memory_pool_map,orig_map);
+			rc = _eval_memory_big(job_ptr, node_map, memory_pool_map, node_usage, test_only);
+		}		
+
+		FREE_NULL_BITMAP(orig_map);
+
 		//debug5("SDDEBUG: %s error_code %d after _eval_memory",__func__,rc);
 		//debug5("SDDEBUG: %s After _eval_memory memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
 	}
@@ -4161,8 +4291,6 @@ alloc_job:
 	job_res->memory_nhosts           = bit_set_count(memory_pool_map);
 	/* FVZ: free memory_pool_here after copy */
 	FREE_NULL_BITMAP(memory_pool_map);
-	debug5("SDDEBUG: %s job resources of job_id %u memory_nodes %s memory_nhosts %u bitmap %lu",
-			__func__,job_ptr->job_id,job_res->memory_nodes,job_res->memory_nhosts,bit_set_count(job_res->memory_pool_bitmap));
 
 
 	job_res->cpus_used        = xmalloc(job_res->nhosts *
@@ -4314,9 +4442,9 @@ alloc_job:
 	 * for pool nodes, it has to allocate its free_mem */
 	/* load memory allocated array */
 	save_mem = details_ptr->pn_min_memory;
-	int idx = 0;
 	int idx_mem = -1, idx_cpu = -1;
 	uint64_t avail = 0, rem = 0, min_cpus, allocated;
+	uint64_t *local_free;
 	int *mem_rem_per_node=NULL;
 	uint32_t nodes;
 	bool using_nodes = false;
@@ -4324,8 +4452,18 @@ alloc_job:
 
 	nodes = bit_set_count(job_res->node_bitmap);
 
+	local_free = xmalloc(nodes * sizeof(uint64_t));
 	mem_rem_per_node = xmalloc(nodes * sizeof(int));
 	memset(mem_rem_per_node,0,nodes);
+
+	info("SDDEBUG: %s job resources of job_id %u nodes %u total_nodes %u",
+			__func__,job_ptr->job_id,job_res->nhosts,job_res->memory_nhosts);
+	
+	first = bit_ffs(job_res->memory_pool_bitmap);
+	if (first != -1)
+		last  = bit_fls(job_res->memory_pool_bitmap);
+	else
+		last = first - 1;
 
 	if (save_mem & MEM_PER_CPU){/* memory is per-cpu */
 		save_mem = (save_mem &= (~MEM_PER_CPU));
@@ -4348,12 +4486,6 @@ alloc_job:
 
 		rem = (min_cpus * save_mem);
 		
-		first = bit_ffs(job_res->memory_pool_bitmap);
-		if (first != -1)
-			last  = bit_fls(job_res->memory_pool_bitmap);
-		else
-			last = first - 1;
-
 		info("SDDEBUG: %s Filling in job resources of job_id %u for memory_allocated %lu per cpu, total requested %lu",__func__,job_ptr->job_id,save_mem,rem);
 		for (i = first; i <= last; i++) {
 			if (!bit_test(job_res->memory_pool_bitmap, i))
@@ -4370,7 +4502,8 @@ alloc_job:
 											node_usage[i].alloc_memory;
 			
 			allocated = save_mem*job_res->cpus[idx_cpu]; //specified cpu
-			
+
+			job_res->node_mem_per_core[idx_cpu] = save_mem; //actual node mem usage/allocate per core
 
 			if(nodes == 1) allocated = save_mem*min_cpus; //specified num_task and all tasks are allocated 1 node
 
@@ -4384,7 +4517,9 @@ alloc_job:
 				job_res->memory_allocated[idx_mem] = avail;
 				job_res->memory_used[idx_mem] = avail;
 				rem -=  avail;
+				local_free[idx_cpu] = 0;
 			}else{
+				local_free[idx_cpu] = avail - MIN(allocated,rem);
 				if(rem <= allocated){
 					job_res->memory_allocated[idx_mem] = rem;
 					job_res->memory_used[idx_mem] = rem;
@@ -4394,8 +4529,9 @@ alloc_job:
 					rem -= (allocated);	
 			}
 
-			info("SDDEBUG: %s job_id %u node %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u mem_rem_per_node[%d] %d",
-					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,job_res->cpus[idx_cpu],idx_cpu,mem_rem_per_node[idx_cpu]);
+			info("SDDEBUG: %s job_id %u cnode %s memory_allocated %lu node_usage %lu avail %lu rem %lu cpus %u mem_rem_per_node[%d] %d",
+					__func__,job_ptr->job_id,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,
+					avail,rem,job_res->cpus[idx_cpu],idx_cpu,mem_rem_per_node[idx_cpu]);
 
 		}
 	} 
@@ -4424,6 +4560,8 @@ alloc_job:
 			avail = select_node_record[i].real_memory -
 											node_usage[i].alloc_memory;
 
+			job_res->node_mem_per_core[idx_cpu] = save_mem;
+
 			job_res->memory_allocated[idx_mem] = save_mem;	
 			job_res->memory_used[idx_mem] = save_mem;
 			mem_rem_per_node[idx_cpu] = save_mem - avail;		 
@@ -4448,15 +4586,64 @@ alloc_job:
 
 	}
 
+	// to treat is_big jobs we allocate all remote memory nodes
+	// to the structure at the first compute node
 	// Using memory_nodes != cpu_nodes
-	if(rem){
+	if(job_ptr->is_big_job){
+		//If necessary we use remote memory available
+		for (i = first, idx_mem = -1, idx_cpu = 0; i <= last && rem; i++) {
+			if (!bit_test(job_res->memory_pool_bitmap, i))
+				continue;
+
+			idx_mem++;
+
+			if (bit_test(job_res->node_bitmap, i))
+				continue;
+
+			job_res->remote_mem_index[idx_cpu][0]++;
+			j = job_res->remote_mem_index[idx_cpu][0];
+			job_res->remote_mem_index[idx_cpu] = xrealloc(job_res->remote_mem_index[idx_cpu],(j+1) * sizeof(int *));
+			job_res->remote_mem_index[idx_cpu][j] = i;
+
+			avail = select_node_record[i].real_memory -
+											node_usage[i].alloc_memory;
+
+			job_res->memory_allocated[idx_mem] = MIN(avail,rem);
+			job_res->memory_used[idx_mem] = MIN(avail,rem);
+			
+			rem -= MIN(avail,rem);
+			
+			info("SDDEBUG: %s big_job_id %u rnode[%d] %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu",
+					__func__,job_ptr->job_id,j,select_node_record[i].node_ptr->name,job_res->remote_mem_index[idx_cpu][j],
+					job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem);
+
+		}
+
+		//If necessary we use local memory available in some compute node
+		for (i = first, idx_mem = -1, idx_cpu = -1; i <= last && rem; i++) {
+			if (!bit_test(job_res->memory_pool_bitmap, i))
+				continue;
+
+			idx_mem++;
+
+			if(!bit_test(job_res->node_bitmap, i))
+				continue;
+			
+			idx_cpu++;
+
+			if(local_free[idx_cpu] > 0){
+				job_res->memory_allocated[idx_mem] += MIN(local_free[idx_cpu],rem);
+				job_res->memory_used[idx_mem] += MIN(local_free[idx_cpu],rem);
+				rem -= MIN(local_free[idx_cpu],rem);
+				info("SDDEBUG: %s big_job_id %u cnode-r[%d] %s memory_allocated %lu node_usage %lu avail %lu rem %lu",
+					__func__,job_ptr->job_id,idx_cpu,select_node_record[i].node_ptr->name,job_res->memory_allocated[idx_mem],
+					node_usage[i].alloc_memory,local_free[idx_cpu],rem);
+			}
+		}
+	//the else will handle the allocation when the job !is_big				
+	}else if(rem){
 		idx_mem = -1;
 		idx_cpu = 0;
-		first = bit_ffs(job_res->memory_pool_bitmap);
-		if (first != -1)
-			last  = bit_fls(job_res->memory_pool_bitmap);
-		else
-			last = first - 1;
 		
 		for (i = first; i <= last; i++) {
 			if (!bit_test(job_res->memory_pool_bitmap, i))
@@ -4498,20 +4685,21 @@ alloc_job:
 				mem_rem_per_node[idx_cpu] = 0;
 			}
 
-			info("SDDEBUG: %s job_id %u node[%d] %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
+			info("SDDEBUG: %s job_id %u rnode[%d] %s memory_allocated[%d] %lu node_usage %lu avail %lu rem %lu mem_rem_per_node[%d] %d",
 					__func__,job_ptr->job_id,j,select_node_record[i].node_ptr->name,job_res->remote_mem_index[idx_cpu][j],
 					job_res->memory_allocated[idx_mem],node_usage[i].alloc_memory,avail,rem,idx_cpu,mem_rem_per_node[idx_cpu]);
 		}
 	}
 	
 	if(rem){
-		info("SDDEBUG: %s filling_jobresource_error - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
+		fatal("SDDEBUG: %s_ERROR filling_jobresource_ERROR - something went wrong for job_id %u memory left %lu. It SHOULD BE 0!!!",
 			__func__,job_ptr->job_id,rem);
 		free_job_resources(&job_ptr->job_resrcs);
 		error_code = SLURM_ERROR;
 	}
 
 	xfree(mem_rem_per_node);
+	xfree(local_free);
 
 	return error_code;
 }

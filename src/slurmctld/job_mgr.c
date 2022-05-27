@@ -633,6 +633,7 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 	//job_ptr->list_usage = list_create(NULL);
 	job_ptr->list_usage = NULL;
 	job_ptr->mem_ov = 0.0;
+	job_ptr->is_big_job = false;
 
 	/*FVZ simulator mem overprovisioning test */
 	bool is_rand = true;
@@ -647,7 +648,7 @@ static struct job_record *_create_job_record(uint32_t num_jobs)
 		if (seed <= 2.0) {
 			seed = seed*100;
 			is_rand = false;
-			debug("SchedulerParameters mem_ov_seed constant: %d",seed);
+			debug("SchedulerParameters mem_ov_seed constant: %f",seed);
 		}
 	} else
 		seed = 0.0;
@@ -6939,24 +6940,225 @@ extern int job_limits_check(struct job_record **job_pptr, bool check_min_time)
 	return (fail_reason);
 }
 
+bool _is_job_big(bitstr_t *nodes_bitmap, uint64_t request_mem){
+	uint64_t mem_per_node = 0, tot_alloc_mem = 0, free_mem, job_nodes;
+	bitstr_t *memory_pool_map = NULL;
+	int *mem_rem_per_node = NULL;
+	int i, idx, i_first, i_last;
+	bool is_big = false;
+		
+	job_nodes = bit_set_count(nodes_bitmap);
+	mem_per_node = request_mem/job_nodes;
+	mem_rem_per_node = xmalloc(job_nodes * sizeof(int));
+	memset(mem_rem_per_node,0,job_nodes);
+
+	memory_pool_map = bit_copy(nodes_bitmap);
+	bit_set_all(memory_pool_map);
+
+	for (i = 0, idx = 0; i < node_record_count; i++) {
+		if (bit_test(nodes_bitmap, i) == 0)
+			continue;
+
+		mem_rem_per_node[idx] = mem_per_node - node_record_table_ptr[i].real_memory; 
+		idx++;
+		tot_alloc_mem += MIN(node_record_table_ptr[i].real_memory, mem_per_node);
+		bit_clear(memory_pool_map,i);
+	}
+
+
+	if(tot_alloc_mem < request_mem){
+		idx = 0;		
+		i_first = bit_ffs(memory_pool_map);
+		if (i_first == -1)
+			i_last = -2;
+		else
+			i_last  = bit_fls(memory_pool_map);
+
+		for (i = i_first; i <= i_last; i++) {
+			if (!bit_test(memory_pool_map, i))
+				continue;
+			free_mem = node_record_table_ptr[i].real_memory;
+
+			//FVZ: Might happen some nodes don't need extra mem. we should skip them
+			while((idx < job_nodes) && (mem_rem_per_node[idx] <= 0))
+				idx++;
+			
+			if(idx == job_nodes)
+				break;
+			
+			if(mem_rem_per_node[idx] > free_mem){
+				mem_rem_per_node[idx] -= free_mem;
+				tot_alloc_mem += free_mem;
+			}
+			else{
+				tot_alloc_mem += mem_rem_per_node[idx];
+				mem_rem_per_node[idx] = 0;
+			}
+			
+			bit_clear(memory_pool_map,i);
+			debug5("SDDEBUG: %s [memory node %s free_mem %lu] total allocated up now %lu mem_rem_per_node[%d] %d",
+					__func__,node_record_table_ptr[i].name,free_mem,tot_alloc_mem,idx,mem_rem_per_node[idx]);
+			
+			if(tot_alloc_mem >= request_mem){				
+				debug5("SDDEBUG: %s requested memory achieved using default disaggregated allocation.",__func__);
+				break;
+			}
+		}
+	}
+	else
+	{
+		debug5("SDDEBUG: %s Memory requirement fits!",__func__);		
+	}	
+
+	if(tot_alloc_mem < request_mem) {
+		info("SDDEBUG: %s it is not possible to allocate memory using the default disaggregated allocation", __func__);		
+		is_big = true;
+	}
+
+	xfree(mem_rem_per_node);
+	FREE_NULL_BITMAP(memory_pool_map);
+
+	return is_big;
+}
+
+void _create_overprovisioned_nodes_bitmap(struct job_record *job_ptr, bitstr_t *nodes_bitmap,
+											bitstr_t *max_bitmap, int32_t nodes_to_allocate){
+	int i, i_first, i_last;
+	uint64_t max_mem = 0;
+	bitstr_t *config_nodes_part_bitmap = NULL;
+	struct config_record *config_ptr;
+	struct part_record *part_ptr = job_ptr->part_ptr;
+	ListIterator config_iterator;
+
+	if(nodes_to_allocate <= 0){
+		nodes_to_allocate *= -1; 
+		//remove nodes_to_alocate from max_mem bitmap
+		i_first = bit_ffs(max_bitmap);
+		if (i_first == -1)
+			i_last = -2;
+		else
+			i_last  = bit_fls(max_bitmap);
+		for (i = i_first; i <= i_last && nodes_to_allocate; i++) {
+			if (!bit_test(max_bitmap, i))
+				continue;
+
+			bit_clear(nodes_bitmap,i);
+			nodes_to_allocate -= 1;
+		}
+
+		return;
+	}
+
+	//otherwise search the next max and add the bitmap to nodes_bitmap
+	config_iterator = list_iterator_create(config_list);	
+	while ((config_ptr = (struct config_record *)
+			list_next(config_iterator))) {
+
+			//if the configuration was already considered we skip
+			if(bit_overlap(config_ptr->node_bitmap,nodes_bitmap))
+				continue;
+			
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);			
+			
+			//setting the new max_mem
+			if(config_ptr->real_memory > max_mem){
+				bit_clear_all(max_bitmap);
+				bit_or(max_bitmap,config_nodes_part_bitmap);
+				max_mem = config_ptr->real_memory;
+			}
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+	}
+	list_iterator_destroy(config_iterator);
+
+	//remove number of nodes from nodes_to_allocate and call this function again to
+	//remove from nodes_bitmap the number of nodes excedent
+	nodes_to_allocate -= bit_set_count(max_bitmap);
+	bit_or(nodes_bitmap,max_bitmap);
+	_create_overprovisioned_nodes_bitmap(job_ptr,nodes_bitmap,max_bitmap,nodes_to_allocate);
+}
+
+//to enforce the overprovisioning for each created job
+void _enforce_request_overprovisioning(struct job_record *job_ptr){
+	int32_t conf_nodes, nodes_to_allocate;
+	uint16_t cores, job_nodes = 0;
+	uint64_t mem = job_ptr->details->pn_min_memory, max_mem = 0;
+	uint64_t request_mem = 0, part_total_mem_avail = 0, sys_base_tot_mem = 0;
+	double ov 	 = job_ptr->mem_ov;
+	char *tmp_ptr;
+	bitstr_t *config_nodes_part_bitmap = NULL, *nodes_bitmap = NULL, *max_bitmap = NULL;
+	struct config_record *config_ptr;
+	struct part_record *part_ptr = job_ptr->part_ptr;
+	ListIterator config_iterator;
+
+	mem = (mem &= (~MEM_PER_CPU));
+	mem += round(((double)mem)*(ov/100.0));
+	request_mem  = mem*job_ptr->details->min_cpus;
+
+	// Check if the overprovisioned mem is higher than the total system mem
+	config_iterator = list_iterator_create(config_list);	
+	while ((config_ptr = (struct config_record *)
+			list_next(config_iterator))) {
+			cores = config_ptr->cores*config_ptr->sockets;
+			job_nodes = MAX(job_nodes,ceil(job_ptr->details->min_cpus/cores));
+			config_nodes_part_bitmap = bit_copy(config_ptr->node_bitmap);
+			bit_and(config_nodes_part_bitmap,part_ptr->node_bitmap);
+			conf_nodes = bit_set_count(config_nodes_part_bitmap);
+			part_total_mem_avail += (conf_nodes * config_ptr->real_memory);			
+			if(config_ptr->real_memory > max_mem){
+				FREE_NULL_BITMAP(max_bitmap);
+				max_bitmap = bit_copy(config_nodes_part_bitmap);				
+				max_mem = config_ptr->real_memory;
+			}
+			FREE_NULL_BITMAP(config_nodes_part_bitmap);
+	}
+	list_iterator_destroy(config_iterator);
+
+	//improve later
+	sys_base_tot_mem = part_total_mem_avail;
+	if ((tmp_ptr = xstrcasestr(slurmctld_conf.sched_params, "sys_base_tot_mem="))) {
+		sys_base_tot_mem = atoi(tmp_ptr + 17);		
+	}
+	info("%s SchedulerParameters sys_base_tot_mem: %lu",__func__,sys_base_tot_mem);
+
+	//If the job request more than the system is able to provide,
+	//We clip the memory and set the mem per core to be the total mem available for the
+	//smallest system. It will happen for overprovisioned request
+	//since our trace runs the actual max usage, whose worst case
+	//does not exceed the system limit	
+	if(request_mem > part_total_mem_avail){
+		mem = floor(sys_base_tot_mem/job_ptr->details->min_cpus);
+		request_mem = mem*job_ptr->details->min_cpus;
+	}
+
+	//Then we check if we can allocate the memory using the default disaggregated way,
+	//otherwise we flag the job as big
+	nodes_to_allocate = job_nodes - bit_set_count(max_bitmap);
+	nodes_bitmap = bit_copy(max_bitmap);
+	_create_overprovisioned_nodes_bitmap(job_ptr,nodes_bitmap,max_bitmap,nodes_to_allocate);
+	job_ptr->is_big_job = _is_job_big(nodes_bitmap,request_mem);
+
+	
+
+	info("%s for job_id=%u %.5f percent: before %lu after %lu",
+			__func__,job_ptr->job_id,ov,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
+	info("%s for job_id=%u request_mem %lu part_total_mem_avail %lu mem %lu job_nodes %u is_big %d",
+			__func__,job_ptr->job_id,request_mem,part_total_mem_avail,mem,job_nodes,job_ptr->is_big_job);
+	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
+	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
+
+	FREE_NULL_BITMAP(max_bitmap);
+	FREE_NULL_BITMAP(nodes_bitmap);
+}
+
 //to enforce the system cap for each created job
 void _enforce_request_cap(struct job_record *job_ptr){
 	uint64_t mem = job_ptr->details->pn_min_memory;
 	mem = (mem &= (~MEM_PER_CPU));
 	mem -= round(mem*((double)request_cap/100.0));
 	mem = MAX(1,mem);
-	info("%s %d percent: before %lu after %lu",__func__,request_cap,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
-	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
-	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
-}
-
-//to enforce the overprovisioning for each created job
-void _enforce_request_overprovisioning(struct job_record *job_ptr){
-	uint64_t mem = job_ptr->details->pn_min_memory;
-	double ov 	 = job_ptr->mem_ov;
-	mem = (mem &= (~MEM_PER_CPU));
-	mem += round(((double)mem)*(ov/100.0));
-	info("%s %.5f percent: before %lu after %lu",__func__,ov,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
+	info("%s %d percent for job_id=%u: before %lu after %lu",
+			__func__,request_cap,job_ptr->job_id,job_ptr->details->pn_min_memory & (~MEM_PER_CPU),mem);
 	job_ptr->details->pn_min_memory = (mem | MEM_PER_CPU);	
 	job_ptr->details->orig_pn_min_memory = job_ptr->details->pn_min_memory;
 }

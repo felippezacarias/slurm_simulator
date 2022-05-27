@@ -129,9 +129,14 @@ extern int build_job_resources(job_resources_t *job_resrcs,
 		job_resrcs->core_bitmap_used = bit_alloc(core_cnt);
 	}
 
-	/* FVZ: creating structure to hold remote mem index. better to manipulate
-			when we need to add or remove memory */
+	/* FVZ: creating structure to hold remote mem index and
+			the node current mem_allocation. It is better to 
+			manipulate when we need to add or remove memory */
 	int32_t nnodes = bit_set_count(job_resrcs->node_bitmap);
+	
+	//It will store the memory per core for each compute node
+	job_resrcs->node_mem_per_core = xmalloc(nnodes * sizeof(uint64_t));
+
 	job_resrcs->remote_mem_index = xmalloc(nnodes * sizeof(int *));
 	for(i = 0; i < nnodes; i++){
 		job_resrcs->remote_mem_index[i] = xmalloc(1 * sizeof(int *));
@@ -434,6 +439,7 @@ extern void free_job_resources(job_resources_t **job_resrcs_pptr)
 				xfree(job_resrcs_ptr->remote_mem_index[i]);
 		}
 		xfree(job_resrcs_ptr->remote_mem_index);
+		xfree(job_resrcs_ptr->node_mem_per_core);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap);
 		FREE_NULL_BITMAP(job_resrcs_ptr->core_bitmap_used);
 		xfree(job_resrcs_ptr->cores_per_socket);
