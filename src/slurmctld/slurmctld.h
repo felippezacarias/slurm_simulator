@@ -901,12 +901,13 @@ struct job_record {
 	time_t wait4switch_start; /* Time started waiting for switch       */
 
 	uint32_t maxrss;	/* */
-    uint32_t memreq;	/* */
+    uint32_t memreq;	/* */	
     double speed;		/* */
     double time_elapsed; /* */
     double time_left;	/* */
 	time_t time_delta;   /* FVZ: last time _check_job_status function was called */
 	uint32_t sim_executable; /* FVZ: id of the simulated binary */
+	uint32_t duration;	/*FVZ: simulated job runtime */
 	double mem_ov; 		/* FVZ: percentage of memory overprovisioned */
 	bool resize_error;		/* FVZ: indicate if we had an error during enforcing usage trace;*/
 	bool is_big_job; 		/* FVZ: indicate if it is a special case to handle the allocation;*/

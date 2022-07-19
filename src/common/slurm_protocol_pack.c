@@ -8600,6 +8600,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
 		pack32(job_desc_ptr->sim_executable, buffer);
+		pack32(job_desc_ptr->duration, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -8740,6 +8741,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
 		pack32(job_desc_ptr->sim_executable, buffer);
+		pack32(job_desc_ptr->duration, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -8880,6 +8882,7 @@ _pack_job_desc_msg(job_desc_msg_t * job_desc_ptr, Buf buffer,
 		pack64(job_desc_ptr->pn_min_memory, buffer);
 		pack32(job_desc_ptr->pn_min_tmp_disk, buffer);
 		pack32(job_desc_ptr->sim_executable, buffer);
+		pack32(job_desc_ptr->duration, buffer);
 		pack8(job_desc_ptr->power_flags, buffer);
 
 		pack32(job_desc_ptr->cpu_freq_min, buffer);
@@ -9049,6 +9052,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
 		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
+		safe_unpack32(&job_desc_ptr->duration, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);
@@ -9235,6 +9239,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
 		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
+		safe_unpack32(&job_desc_ptr->duration, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);
@@ -9420,6 +9425,7 @@ _unpack_job_desc_msg(job_desc_msg_t ** job_desc_buffer_ptr, Buf buffer,
 		safe_unpack64(&job_desc_ptr->pn_min_memory, buffer);
 		safe_unpack32(&job_desc_ptr->pn_min_tmp_disk, buffer);
 		safe_unpack32(&job_desc_ptr->sim_executable, buffer);
+		safe_unpack32(&job_desc_ptr->duration, buffer);
 		safe_unpack8(&job_desc_ptr->power_flags,   buffer);
 
 		safe_unpack32(&job_desc_ptr->cpu_freq_min, buffer);

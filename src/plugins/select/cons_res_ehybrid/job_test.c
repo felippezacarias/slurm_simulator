@@ -3562,17 +3562,11 @@ static uint16_t *_select_nodes(struct job_record *job_ptr, uint32_t min_nodes,
 	if(rc == SLURM_SUCCESS){
 		bit_and_not(memory_pool_map,node_map);
 		orig_map = bit_copy(memory_pool_map);
-		//debug5("SDDEBUG: %s After bit_and_not memory_pool_bitmap count %u",__func__,bit_set_count(memory_pool_map));
-		rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
 
-		//if((rc == SLURM_SUCCESS) && !test_only)
-		//	job_ptr->is_big_job = false;
-
-		if((rc != SLURM_SUCCESS) && job_ptr->is_big_job){
-			bit_clear_all(memory_pool_map);
-			bit_or(memory_pool_map,orig_map);
+		if(!job_ptr->is_big_job)
+			rc = _eval_memory(job_ptr, node_map, memory_pool_map, node_usage, test_only);
+		else
 			rc = _eval_memory_big(job_ptr, node_map, memory_pool_map, node_usage, test_only);
-		}		
 
 		FREE_NULL_BITMAP(orig_map);
 
@@ -4431,6 +4425,9 @@ alloc_job:
 	 * checks are accurate later on.
 	 */
 	if (mode != SELECT_MODE_RUN_NOW) {
+		// We add the memory nodes to the node_bitmap structure
+		// to let the backfill now it has to reserve these nodes as well
+		bit_or(node_bitmap,job_res->memory_pool_bitmap); 		
 		free_job_resources(&job_ptr->job_resrcs);
 		return error_code;
 	}

@@ -503,23 +503,30 @@ generateJob(job_trace_t* jobd) {
 	char* this_addr;
 
 	uint32_t trace_job_id=jobd->job_id;
+	uint32_t time_limit, time_min;
 
 	sprintf(script,"#!/bin/bash\n");
 
 	slurm_init_job_desc_msg(&dmesg);
 
 	/* First, set up and call Slurm C-API for actual job submission. */
-	/* FVZ: I will change this timelimit to be the duration, because
-	 * because we are going to dynamically change due to the speed. The 
-	 * hard job limit will be sent on SIM_JOB msg */
+	/* FVZ: Time_limit and time_min will represent the lower and upper bound
+	 * time limit. It will be used by slurm to calculate the ending time for
+	 * some functions. It uses the variable time in minutes. However our trace is in
+	 * seconds and we simulate each second. The slurmd will receive 
+	 * the hard job limit and duration in seconds by SIM_JOB msg.
+	 * We will also dynamically change the duration of the job using the notion of speed. */
 	if(jobd->duration == 0){
-		dmesg.time_limit    = jobd->duration;
-		dmesg.time_min    = jobd->duration;
+		time_limit = 0;
+		time_min   = 0;
 	}
 	else{
-		dmesg.time_limit    = jobd->wclimit;
-		dmesg.time_min    = jobd->duration;
+		time_limit    =  MAX(1,(uint32_t)ceil((double)jobd->wclimit/60.0));//jobd->wclimit;
+		time_min      = MAX(1,(uint32_t)ceil((double)jobd->duration/60.0));//jobd->duration;
 	}
+
+	dmesg.time_limit = time_limit;
+	dmesg.time_min	 = time_min;
 
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
@@ -542,6 +549,7 @@ generateJob(job_trace_t* jobd) {
 	if(jobd->pn_mim_memory) dmesg.pn_min_memory = jobd->pn_mim_memory;
 
 	dmesg.sim_executable = jobd->sim_executable;
+	dmesg.duration 		 = jobd->duration;
 	//dmesg.min_cpus= jobd->tasks;
 	//dmesg.ntasks_per_node = 1;
 	//dmesg.cpus_per_task = 4;
