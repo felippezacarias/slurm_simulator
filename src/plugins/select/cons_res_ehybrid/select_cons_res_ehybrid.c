@@ -1850,13 +1850,13 @@ static time_t _guess_job_end(struct job_record * job_ptr, time_t now)
 		/* No idea when the job might end, this is just a guess */
 		if (job_ptr->time_limit && (job_ptr->time_limit != NO_VAL) &&
 		    (job_ptr->time_limit != INFINITE)) {
-			end_time = now + (job_ptr->time_limit * 60);
+			end_time = now + (job_ptr->time_limit);
 		} else {
 			end_time = now + (365 * 24 * 60 * 60);	/* one year */
 		}
 	} else {
 		end_time = job_ptr->end_time + slurmctld_conf.kill_wait +
-			   (over_time_limit  * 60);
+			   (over_time_limit);
 	}
 	if (end_time <= now)
 		end_time = now + 1;
@@ -2032,12 +2032,12 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 				}
 				bit_or(bitmap, orig_map);
 				overlap = bit_overlap(bitmap,
-						      tmp_job_ptr->node_bitmap);
+						      tmp_job_ptr->job_resrcs->memory_pool_bitmap);
 				if (overlap == 0)  /* job has no usable nodes */
 					continue;  /* skip it */
-				debug2("%s: %s, %pJ: overlap=%d",
+				debug2("%s: %s, %pJ: overlap=%d start_time=%llu end_time=%llu time_limit=%lu",
 				       plugin_type, __func__, tmp_job_ptr,
-				       overlap);
+				       overlap, tmp_job_ptr->start_time,tmp_job_ptr->end_time,tmp_job_ptr->time_limit);
 				if (!first_job_ptr)
 					first_job_ptr = tmp_job_ptr;
 				last_job_ptr = tmp_job_ptr;
@@ -2097,8 +2097,8 @@ static int _will_run_test(struct job_record *job_ptr, bitstr_t *bitmap,
 		preemptee_iterator =list_iterator_create(preemptee_candidates);
 		while ((tmp_job_ptr = (struct job_record *)
 			list_next(preemptee_iterator))) {
-			if (bit_overlap(bitmap,
-					tmp_job_ptr->node_bitmap) == 0)
+			if(bit_overlap(bitmap,
+				    tmp_job_ptr->job_resrcs->memory_pool_bitmap) == 0)
 				continue;
 			list_append(*preemptee_job_list, tmp_job_ptr);
 		}
@@ -2666,11 +2666,10 @@ uint64_t _alloc_on_compute_node(struct job_record *job_ptr, uint64_t to_increase
 					node_usage[i].alloc_memory;
 		}
 
-		info("SDDEBUG: %s compute_node job_id %u node %s to_increase %lu local_avail %d",
-							__func__,job_ptr->job_id,node_record[i].node_ptr->name,to_increase,avail);
-
 		increased = 0;
 		if(avail){
+			info("SDDEBUG: %s big_job_id %u compute_node[%d] %s to_increase %lu local_avail[%d] %d",
+					__func__,job_ptr->job_id,idx_cpu,node_record[i].node_ptr->name,to_increase,idx_mem,avail);
 			if(to_increase >= avail){
 				job->memory_used[idx_mem] += avail;				
 				to_increase -= avail;
@@ -2810,9 +2809,9 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 	//in case the compute node is lending memory rem will be negative
 	rem = MAX(0,rem);
 
-	info("SDDEBUG: %s compute_node job_id %u node %s remote_memory_allocated %lu to_decrease %lu local_alloc %lu local_mem %lu",
-				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-				rem,to_decrease,job->memory_allocated[cpu_mem_idx],job->memory_used[cpu_mem_idx]);
+	info("SDDEBUG: %s job_id %u compute_node[%d] %s remote_memory_allocated %lu to_decrease %lu local_alloc[%d] %lu local_mem %lu",
+				__func__,job_ptr->job_id,node,node_record[cpu_bit].node_ptr->name,
+				rem,to_decrease,cpu_mem_idx,job->memory_allocated[cpu_mem_idx],job->memory_used[cpu_mem_idx]);
 
 	if(rem){
 		//We going from the last added remote memory to the earlier
@@ -2827,8 +2826,8 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 			remote_allocated = job->memory_used[idx_mem];
 
 			if(remote_allocated == 0){
-				info("SDDEBUG: %s [empty] memory_node job_id %u node %s remote_allocated %s remote_memory_allocated %lu node_alloc %lu node_usage %lu rem %d",
-						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+				info("SDDEBUG: %s [empty] memory_node job_id %u node %s remote_allocated[%d] %s remote_memory_allocated %lu node_alloc %lu node_usage %lu rem %d",
+						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,idx_mem,
 						node_record[i].node_ptr->name,remote_allocated,job->memory_allocated[idx_mem],job->memory_used[idx_mem],rem);
 				continue;
 			}
@@ -2851,8 +2850,8 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 				node_usage[i].alloc_memory 	   -= decrease;
 			}
 
-			info("SDDEBUG: %s memory_node job_id %u node %s remote_allocated %s remote_memory_allocated %lu to_decrease %lu node_alloc %lu node_usage %lu cpus %u rem %d",
-						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+			info("SDDEBUG: %s memory_node job_id %u node %s remote_allocated[%d] %s remote_memory_allocated %lu to_decrease %lu node_alloc %lu node_usage %lu cpus %u rem %d",
+						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,idx_mem,
 						node_record[i].node_ptr->name,remote_allocated,to_decrease,
 						job->memory_allocated[idx_mem],job->memory_used[idx_mem],cores,rem);
 
@@ -2886,9 +2885,9 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 				node_usage[cpu_bit].alloc_memory   -= to_decrease;
 		}
 		to_decrease = 0;
-		info("SDDEBUG: %s local_compute_node job_id %u node %s remote_mem_node %s to_decrease %lu node_alloc %lu node_usage %lu cpus %u rem %d",
-			__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-			node_record[cpu_bit].node_ptr->name,to_decrease,
+		info("SDDEBUG: %s local_compute_node[%d] job_id %u node %s remote_mem_node %s to_decrease %lu node_alloc[%d] %lu node_usage %lu cpus %u rem %d",
+			__func__,node,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
+			node_record[cpu_bit].node_ptr->name,to_decrease,cpu_mem_idx,
 			job->memory_allocated[cpu_mem_idx],job->memory_used[cpu_mem_idx],cores,rem);
 	}
 
@@ -3101,8 +3100,8 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node_, uint64_t
 		avail = job->memory_allocated[cpu_mem_idx] - 
 					job->memory_used[cpu_mem_idx];
 
-		info("SDDEBUG: %s compute_node job_id %u node %s to_increase %lu local_avail %lu new_mem %lu",
-							__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,avail,new_mem);
+		info("SDDEBUG: %s compute_node[%d] job_id %u node %s to_increase %lu local_avail[%d] %lu new_mem %lu",
+							__func__,node_,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,cpu_mem_idx,avail,new_mem);
 
 		if(avail){
 			if(to_increase >= avail){
@@ -3124,11 +3123,10 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node_, uint64_t
 			avail = job->memory_allocated[idx_mem] -
 					job->memory_used[idx_mem];
 			
-			info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node %s avail %lu left_to_increase %lu",
-				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-				node_record[i].node_ptr->name,avail,to_increase);
-
 			if(avail){
+				info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node[%d] %s avail %lu left_to_increase %lu",
+					__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,idx_mem,
+					node_record[i].node_ptr->name,avail,to_increase);
 				if(to_increase >= avail){
 					job->memory_used[idx_mem]+=avail;					
 					to_increase -= avail;
@@ -3165,8 +3163,8 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node_, uint64_t
 	avail = node_record[cpu_bit].real_memory - 
 				node_usage[cpu_bit].alloc_memory;
 
-	info("SDDEBUG: %s compute_node job_id %u node %s to_increase %lu local_avail %lu new_mem %lu",
-						__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,avail,new_mem);
+	info("SDDEBUG: %s compute_node[%d] job_id %u node %s to_increase %lu local_avail[%d] %lu new_mem %lu",
+						__func__,node_,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,to_increase,cpu_mem_idx,avail,new_mem);
 
 	if(avail){
 		if(to_increase >= avail){
@@ -3193,11 +3191,10 @@ static int _increase_mem_sim_job(struct job_record *job_ptr, int node_, uint64_t
 		avail = node_record[i].real_memory - 
 			node_usage[i].alloc_memory;
 
-		info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node %s avail %lu left_to_increase %lu",
-			__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,
-			node_record[i].node_ptr->name,avail,to_increase);
-
 		if(avail){
+			info("SDDEBUG: %s memory_node job_id %u node %s remote_mem_node[%d] %s avail %lu left_to_increase %lu",
+				__func__,job_ptr->job_id,node_record[cpu_bit].node_ptr->name,idx_mem,
+				node_record[i].node_ptr->name,avail,to_increase);
 			if(to_increase >= avail){
 				job->memory_allocated[idx_mem]+=avail;
 				job->memory_used[idx_mem]+=avail;
@@ -3461,8 +3458,8 @@ int _update_node_mem_sim_usage(struct job_record *job_ptr, int node, uint64_t ne
 		return rc;
 	}
 
-	info("%s cores %d total_allocated %lu local_allocated %lu node_mem_per_cpu %lu new_mem %lu",
-			__func__,cores,total_allocated,job->memory_used[cpu_mem_idx],mem_per_cpu,new_mem);
+	info("%s node %d cores %d total_allocated %lu local_allocated[%d] %lu node_mem_per_cpu %lu new_mem %lu",
+			__func__,node,cores,total_allocated,cpu_mem_idx,job->memory_used[cpu_mem_idx],mem_per_cpu,new_mem);
 
 	if(mem_per_cpu > new_mem){
 		rc = _decrease_mem_sim_job(job_ptr,node,new_mem,cpu_mem_idx,cpu_bit_idx,mem_index);

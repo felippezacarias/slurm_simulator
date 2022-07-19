@@ -503,6 +503,7 @@ generateJob(job_trace_t* jobd) {
 	char* this_addr;
 
 	uint32_t trace_job_id=jobd->job_id;
+	uint32_t time_limit, time_min;
 
 	sprintf(script,"#!/bin/bash\n");
 
@@ -513,13 +514,16 @@ generateJob(job_trace_t* jobd) {
 	 * because we are going to dynamically change due to the speed. The 
 	 * hard job limit will be sent on SIM_JOB msg */
 	if(jobd->duration == 0){
-		dmesg.time_limit    = jobd->duration;
-		dmesg.time_min    = jobd->duration;
+		time_limit = 0;
+		time_min   = 0;
 	}
 	else{
-		dmesg.time_limit    = jobd->wclimit;
-		dmesg.time_min    = jobd->duration;
+		time_limit    =  MAX(1,(uint32_t)ceil((double)jobd->wclimit/60.0));//jobd->wclimit;
+		time_min      = MAX(1,(uint32_t)ceil((double)jobd->duration/60.0));//jobd->duration;
 	}
+
+	dmesg.time_limit = time_limit;
+	dmesg.time_min	 = time_min;
 
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
@@ -588,8 +592,8 @@ generateJob(job_trace_t* jobd) {
 	slurm_msg_t_init(&req_msg);
 	slurm_msg_t_init(&resp_msg);
 	req.job_id       = rptr->job_id;
-	req.duration     = jobd->duration;
-	req.wclimit     = jobd->wclimit;
+	req.duration     = time_min;
+	req.wclimit     = time_limit;
 	req_msg.msg_type = REQUEST_SIM_JOB;
 	req_msg.data     = &req;
 	req_msg.protocol_version = SLURM_PROTOCOL_VERSION;
@@ -685,6 +689,10 @@ init_trace_info(void *ptr, int op) {
 			sim_start_point = new_trace_record->submit; //Why from the first submit, better current_sim[0]=1 and shift the input trace to start at for e.g. 10s? 
 			//sim_start_point = new_trace_record->submit - 60; //Why -60??
 			/*first_submit = new_trace_record->submit;*/
+		}
+
+		if(new_trace_record->submit > 100){
+			new_trace_record->submit = 100 + MAX(1,(long int)ceil((double)(new_trace_record->submit-100)/60.0));
 		}
 
 		count++;

@@ -2223,9 +2223,10 @@ next_task:
 			continue;
 		}
 		if (start_res > now)
-			end_time = (time_limit * 60) + start_res;
+			end_time = (time_limit) + start_res;			
 		else
-			end_time = (time_limit * 60) + now;
+			end_time = (time_limit) + now;
+			
 		if (end_time < now)	/* Overflow 32-bits */
 			end_time = INFINITE;
 		if (resv_overlap)
@@ -2528,7 +2529,8 @@ skip_start:
 				if (job_ptr->time_limit == INFINITE)
 					hard_limit = YEAR_SECONDS;
 				else
-					hard_limit = job_ptr->time_limit * 60;
+					hard_limit = job_ptr->time_limit;
+					
 				job_ptr->end_time = job_ptr->start_time +
 						    hard_limit;
 				/*
@@ -2665,7 +2667,8 @@ skip_start:
 
 		start_time  = job_ptr->start_time;
 		end_reserve = job_ptr->start_time + boot_time +
-			      (time_limit * 60);
+			      (time_limit);
+
 		start_time  = (start_time / backfill_resolution) *
 			      backfill_resolution;
 		end_reserve = (end_reserve / backfill_resolution) *
@@ -3042,7 +3045,7 @@ static void _reset_job_time_limit(struct job_record *job_ptr, time_t now,
 	new_time_limit = MAX(job_ptr->time_min, job_ptr->time_limit);
 	acct_policy_alter_job(job_ptr, new_time_limit);
 	job_ptr->time_limit = new_time_limit;
-	job_ptr->end_time = job_ptr->start_time + (job_ptr->time_limit * 60);
+	job_ptr->end_time = job_ptr->start_time + (job_ptr->time_limit);
 
 	job_time_adj_resv(job_ptr);
 
@@ -3626,7 +3629,8 @@ static int _pack_start_now(pack_job_map_t *map, node_space_map_t *node_space)
 			if (job_ptr->time_limit == INFINITE)
 				hard_limit = YEAR_SECONDS;
 			else
-				hard_limit = job_ptr->time_limit * 60;
+				hard_limit = job_ptr->time_limit;
+				
 			job_ptr->end_time = job_ptr->start_time + hard_limit;
 			/*
 			 * Only set if start_time. end_time must be set

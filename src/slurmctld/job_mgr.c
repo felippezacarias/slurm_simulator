@@ -6157,7 +6157,7 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 			job_ptr->state_reason = FAIL_LAUNCH;
 		} else if (job_comp_flag
 			   && ((job_ptr->end_time
-				+ over_time_limit * 60) < now)) {
+				+ over_time_limit) < now)) {
 			/*
 			 * Test if the job has finished before its allowed
 			 * over time has expired.
@@ -18454,8 +18454,10 @@ extern void job_end_time_reset(struct job_record *job_ptr)
 		job_ptr->end_time = job_ptr->start_time +
 				    (365 * 24 * 60 * 60); /* secs in year */
 	} else {
+		//Since we have our own time function. 
+		//Time end should follow its convention
 		job_ptr->end_time = job_ptr->start_time +
-				    (job_ptr->time_limit * 60);	/* secs */
+				    (job_ptr->time_limit);	/* secs */
 	}
 	job_ptr->end_time_exp = job_ptr->end_time;
 }
