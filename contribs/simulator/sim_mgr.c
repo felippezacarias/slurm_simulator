@@ -503,6 +503,7 @@ generateJob(job_trace_t* jobd) {
 	char* this_addr;
 
 	uint32_t trace_job_id=jobd->job_id;
+	uint32_t time_limit, time_min;
 
 	sprintf(script,"#!/bin/bash\n");
 
@@ -510,13 +511,17 @@ generateJob(job_trace_t* jobd) {
 
 	/* First, set up and call Slurm C-API for actual job submission. */
 	if(jobd->duration == 0){
-		dmesg.time_limit    = jobd->duration;
-		dmesg.time_min    = jobd->duration;
+		time_limit = 0;
+		time_min   = 0;
 	}
 	else{
-		dmesg.time_limit    = jobd->wclimit;
-		dmesg.time_min    = jobd->duration;
+		time_limit    =  MAX(1,(uint32_t)ceil((double)jobd->wclimit/60.0));//jobd->wclimit;
+		time_min      = MAX(1,(uint32_t)ceil((double)jobd->duration/60.0));//jobd->duration;
 	}
+
+	dmesg.time_limit = time_limit;
+	dmesg.time_min	 = time_min;
+
 	dmesg.job_id        = NO_VAL;
 	dmesg.name	    = "sim_job";
 	uidt = userIdFromName(jobd->username, &gidt);
