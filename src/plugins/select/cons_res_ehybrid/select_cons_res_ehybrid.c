@@ -3348,6 +3348,7 @@ void _restore_usage_record(struct job_record *job_ptr, bitstr_t *orig_mem_bitmap
 				uint64_t* orig_mem_used){
 	struct node_use_record *node_usage = select_node_usage;
 	struct job_resources *job_res = job_ptr->job_resrcs;
+	struct node_record *node_ptr;
 	uint64_t to_update;
 	int i, j, k, first_bit, last_bit;
 
@@ -3382,6 +3383,7 @@ void _restore_usage_record(struct job_record *job_ptr, bitstr_t *orig_mem_bitmap
 					}
 				}else{//removed node on decresing memory
 					node_usage[i].alloc_memory += orig_mem_allocated[j];
+					node_usage[i].node_state   += job_res->node_req;
 				}
 			}else{//new added node
 				k++;
@@ -3390,6 +3392,11 @@ void _restore_usage_record(struct job_record *job_ptr, bitstr_t *orig_mem_bitmap
 						node_usage[i].node_state -=
 							job_res->node_req;
 				} else {
+						node_ptr = node_record_table_ptr + i;
+						error("%s: %s: node_state mis-count (%pJ job_cnt:%u node:%s node_cnt:%u)",
+								plugin_type, __func__, job_ptr,
+								job_res->node_req, node_ptr->name,
+								node_usage[i].node_state);
 						node_usage[i].node_state =
 							NODE_CR_AVAILABLE;
 				}

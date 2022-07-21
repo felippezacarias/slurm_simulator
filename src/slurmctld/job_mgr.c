@@ -6116,6 +6116,13 @@ static int _job_complete(struct job_record *job_ptr, uid_t uid, bool requeue,
 			      __func__, job_ptr);
 			job_ptr->priority = 0;
 		}
+		#else
+		//we run this code to prevent deadlock due to too many requeue 
+		if (job_ptr->batch_flag > MAX_BATCH_REQUEUE) {			
+			info("%s: Setting is_big_job for %pJ, repeated requeue failures! Previous value: %d",
+			      __func__, job_ptr,job_ptr->is_big_job);
+			job_ptr->is_big_job = true;
+		}
 		#endif
 	} else if (IS_JOB_PENDING(job_ptr) && job_ptr->details &&
 		   job_ptr->batch_flag) {
@@ -19632,8 +19639,10 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 	if ((scale == 1.0) && (!(completing || resized)))
 		job_ptr->time_left = ceil(job_ptr->duration - (job_ptr->time_elapsed*job_ptr->duration));
 	else
-		job_ptr->time_left    = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
+		job_ptr->time_left = ceil((1.0 - job_ptr->time_elapsed) /job_ptr->speed); //If job is finalizing this value does not matter, i guess
 
+	//To prevent negative time_left and therefore error during simulation
+	job_ptr->time_left    = MAX(job_ptr->time_left,0);
 	job_ptr->time_delta   = now;
 		
 	info("SDDEBUG: %s job_id=%u [xsharing_nodes=%d] elapsed=%e speed=%e time_left=%e time_delta=%e time_limit=%u model_scaling=%e completing=%d",
@@ -19683,6 +19692,7 @@ extern int _check_job_status(struct job_record *job_ptr, bool completing, bool r
 			job_scan_ptr->speed        = ((1.0/job_scan_ptr->duration)*(scale));
 
 			job_scan_ptr->time_left    = ceil((1.0 - job_scan_ptr->time_elapsed) /job_scan_ptr->speed);
+			job_scan_ptr->time_left  = MAX(job_scan_ptr->time_left,0);
 			job_scan_ptr->time_delta = now;
 
 			_update_sim_job_status(job_scan_ptr,REQUEST_UPDATE_SIM_JOB);
