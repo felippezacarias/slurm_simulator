@@ -2691,7 +2691,8 @@ uint64_t _alloc_on_compute_node(struct job_record *job_ptr, uint64_t to_increase
 }
 
 uint64_t _rm_on_compute_node(struct job_record *job_ptr, int node, 
-							uint64_t remote_to_decrease, int is_trace_usage_dynamic){
+							uint64_t remote_to_decrease,
+							int is_trace_usage_dynamic){
 	struct node_use_record *node_usage = select_node_usage;
 	struct node_res_record *node_record = select_node_record;
 	struct job_resources *job = job_ptr->job_resrcs;
@@ -2707,7 +2708,8 @@ uint64_t _rm_on_compute_node(struct job_record *job_ptr, int node,
 	else
 		last_bit = first_bit - 1;
 	
-	for (i = first_bit, idx_mem = -1, idx_cpu = -1; i <= last_bit && remote_to_decrease; i++) {
+	for (i = first_bit, idx_mem = -1, idx_cpu = -1;
+		 i <= last_bit && remote_to_decrease; i++) {
 		if (!bit_test(job->memory_pool_bitmap, i))
 			continue;		
 
@@ -2746,9 +2748,9 @@ uint64_t _rm_on_compute_node(struct job_record *job_ptr, int node,
 
 		decrease_acc += decrease;
 
-		info("SDDEBUG: %s cmemory_node[%d] big_job_id %u node %s remote_memory_allocated %lu remote_to_decrease %lu orig_allocated %lu node_alloc %lu node_usage %lu",
+		info("SDDEBUG: %s cmemory_node[%d] big_job_id %u node %s remote_memory_allocated %lu remote_to_decrease %lu orig_allocated %lu node_alloc %lu node_usage %lu decrease_acc %lu",
 			__func__,idx_cpu,job_ptr->job_id,node_record[i].node_ptr->name,
-			remote_allocated,remote_to_decrease,orig_allocated,job->memory_allocated[idx_mem],job->memory_used[idx_mem]);
+			remote_allocated,remote_to_decrease,orig_allocated,job->memory_allocated[idx_mem],job->memory_used[idx_mem],decrease_acc);
 
 	}
 
@@ -2864,7 +2866,7 @@ int _decrease_mem_sim_job(struct job_record *job_ptr, int node, uint64_t new_mem
 		// we need to remove it before going locally. But we have to
 		// be careful to not mess the local memory
 		if((job_ptr->is_big_job) && (j < 0)){
-			to_decrease -= _rm_on_compute_node(job_ptr, node, rem, is_trace_usage_dynamic);
+			to_decrease -= _rm_on_compute_node(job_ptr, node, MIN(rem,to_decrease), is_trace_usage_dynamic);
 		}
 	}
 
